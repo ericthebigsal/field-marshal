@@ -311,7 +311,152 @@ globalThis.Stratego.Engine = (function () {
 globalThis.Stratego = globalThis.Stratego || {};
 globalThis.Stratego.AI = (function () {
   "use strict";
-  return {}; // filled in Tasks 6-8
+
+  const E = () => globalThis.Stratego.Engine;
+  const RANK_TYPES = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, "B", "F"];
+  const INITIAL_COUNTS = { 10: 1, 9: 1, 8: 2, 7: 3, 6: 4, 5: 4, 4: 4, 3: 5, 2: 8, 1: 1, B: 6, F: 1 };
+
+  function opponentOf(o) { return o === "red" ? "blue" : "red"; }
+
+  function redactState(state, viewer) {
+    const s = E().cloneState(state);
+    for (let r = 0; r < 10; r++)
+      for (let c = 0; c < 10; c++) {
+        const cell = s.board[r][c];
+        if (cell && !cell.lake && cell.owner !== viewer && !cell.revealed) {
+          cell.rank = null;
+        }
+      }
+    return s;
+  }
+
+  function alivePieces(state, owner) {
+    const out = [];
+    for (let r = 0; r < 10; r++)
+      for (let c = 0; c < 10; c++) {
+        const cell = state.board[r][c];
+        if (cell && !cell.lake && cell.owner === owner) out.push(cell);
+      }
+    return out;
+  }
+
+  function normalize(probs) {
+    const total = RANK_TYPES.reduce((a, t) => a + (probs[t] || 0), 0);
+    if (total <= 0) return probs;
+    for (const t of RANK_TYPES) probs[t] = (probs[t] || 0) / total;
+    return probs;
+  }
+
+  function createBeliefs(state, viewer) {
+    const opponent = opponentOf(viewer);
+    const alive = alivePieces(state, opponent);
+
+    const revealedAliveByType = {};
+    for (const p of alive) if (p.revealed) revealedAliveByType[p.rank] = (revealedAliveByType[p.rank] || 0) + 1;
+
+    const unknownRemaining = {};
+    for (const t of RANK_TYPES)
+      unknownRemaining[t] = Math.max(0, INITIAL_COUNTS[t] - (revealedAliveByType[t] || 0));
+
+    const pieces = {};
+    for (const p of alive) {
+      if (p.revealed) {
+        const probs = {};
+        for (const t of RANK_TYPES) probs[t] = 0;
+        probs[p.rank] = 1;
+        pieces[p.id] = { probs, known: p.rank };
+      } else {
+        const probs = {};
+        for (const t of RANK_TYPES) probs[t] = unknownRemaining[t];
+        normalize(probs);
+        pieces[p.id] = { probs, known: null };
+      }
+    }
+    return { viewer, opponent, pieces };
+  }
+
+  function collapse(entry, rank) {
+    for (const t of RANK_TYPES) entry.probs[t] = 0;
+    entry.probs[rank] = 1;
+    entry.known = rank;
+  }
+
+  function chebyshev(a, b) { return Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1])); }
+
+  function cloneBeliefs(beliefs) {
+    return {
+      viewer: beliefs.viewer, opponent: beliefs.opponent,
+      pieces: Object.fromEntries(Object.entries(beliefs.pieces).map(
+        ([k, v]) => [k, { probs: { ...v.probs }, known: v.known }]
+      )),
+    };
+  }
+
+  function applyMoveTells(beliefs, state, prevState, result, level) {
+    const b = cloneBeliefs(beliefs);
+
+    const aliveIds = new Set(alivePieces(state, b.opponent).map((p) => p.id));
+    for (const id of Object.keys(b.pieces)) if (!aliveIds.has(Number(id))) delete b.pieces[id];
+    for (const p of alivePieces(state, b.opponent)) {
+      if (!b.pieces[p.id]) {
+        const probs = {};
+        for (const t of RANK_TYPES) probs[t] = INITIAL_COUNTS[t];
+        normalize(probs);
+        b.pieces[p.id] = { probs, known: null };
+        if (p.revealed) collapse(b.pieces[p.id], p.rank);
+      }
+    }
+
+    const mv = result && result.move;
+    if (!mv) return b;
+    const moverId = mv.pieceId;
+    const entry = b.pieces[moverId];
+    const fromCell = prevState.board[mv.from[0]][mv.from[1]];
+    const moverBelongsToOpponent = fromCell && fromCell.owner === b.opponent;
+
+    if (entry && moverBelongsToOpponent && !entry.known) {
+      entry.probs["B"] = 0;
+      entry.probs["F"] = 0;
+      normalize(entry.probs);
+      if (level !== "easy" && chebyshev(mv.from, mv.to) > 1) collapse(entry, 2);
+    }
+
+    if (level !== "easy" && result.combat) {
+      const { attacker, defender, outcome } = result.combat;
+      if (outcome === "attacker" && attacker.owner === b.opponent) {
+        const surv = b.pieces[attacker.id];
+        if (surv) collapse(surv, attacker.rank);
+      } else if (outcome === "defender" && defender.owner === b.opponent) {
+        const surv = b.pieces[defender.id];
+        if (surv) collapse(surv, defender.rank);
+      }
+    }
+    return b;
+  }
+
+  function applyPositionalPrior(beliefs, state, level) {
+    if (level !== "hard" && level !== "expert") return beliefs;
+    const b = cloneBeliefs(beliefs);
+    const backRow = b.opponent === "red" ? 9 : 0;
+    for (let r = 0; r < 10; r++)
+      for (let c = 0; c < 10; c++) {
+        const cell = state.board[r][c];
+        if (!cell || cell.lake || cell.owner !== b.opponent) continue;
+        const entry = b.pieces[cell.id];
+        if (!entry || entry.known) continue;
+        let fFactor = 0.3;
+        if (r === backRow) fFactor = 3;
+        else if (Math.abs(r - backRow) === 1) fFactor = 1.2;
+        if ((c <= 1 || c >= 8) && r === backRow) fFactor *= 1.5;
+        entry.probs["F"] *= fFactor;
+        normalize(entry.probs);
+      }
+    return b;
+  }
+
+  return {
+    RANK_TYPES, redactState, createBeliefs, applyMoveTells, applyPositionalPrior,
+  };
 })();
 </script>
 
