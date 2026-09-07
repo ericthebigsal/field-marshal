@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stratego</title>
+<style>
+/* styles added in Task 9 */
+:root { color-scheme: light dark; }
+body { margin: 0; font-family: system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script id="rng">
+globalThis.Stratego = globalThis.Stratego || {};
+globalThis.Stratego.RNG = (function () {
+  "use strict";
+  // mulberry32
+  function create(seed) {
+    let s = seed >>> 0;
+    function next() {
+      s |= 0; s = (s + 0x6D2B79F5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+    function int(n) { return Math.floor(next() * n); }
+    function pick(arr) { return arr[int(arr.length)]; }
+    function shuffle(arr) {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = int(i + 1);
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+    return { next, int, pick, shuffle, state: () => s >>> 0 };
+  }
+  function fromState(state) { return create(state >>> 0); }
+  return { create, fromState };
+})();
+</script>
+
+<script id="engine">
+globalThis.Stratego = globalThis.Stratego || {};
+globalThis.Stratego.Engine = (function () {
+  "use strict";
+  return {}; // filled in Tasks 2-5
+})();
+</script>
+
+<script id="ai">
+globalThis.Stratego = globalThis.Stratego || {};
+globalThis.Stratego.AI = (function () {
+  "use strict";
+  return {}; // filled in Tasks 6-8
+})();
+</script>
+
+<script id="ui">
+globalThis.Stratego = globalThis.Stratego || {};
+globalThis.Stratego.UI = (function () {
+  "use strict";
+  return {}; // filled in Tasks 9-11
+})();
+</script>
+</body>
+</html>
