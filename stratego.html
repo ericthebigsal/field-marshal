@@ -454,8 +454,141 @@ globalThis.Stratego.AI = (function () {
     return b;
   }
 
+  const PIECE_VALUE = { 10: 400, 9: 200, 8: 100, 7: 75, 6: 50, 5: 35, 4: 25, 3: 45, 2: 15, 1: 60, B: 20, F: 2000 };
+  const W = { flagSafety: 15, bombGuard: 10, mobility: 0.5, flagHunt: 2 };
+
+  function expectedValue(entry) {
+    if (entry.known != null) return PIECE_VALUE[entry.known];
+    let v = 0;
+    for (const t of RANK_TYPES) v += (entry.probs[t] || 0) * PIECE_VALUE[t];
+    return v;
+  }
+
+  function manhattan(a, b) { return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]); }
+
+  function findPiece(state, pred) {
+    for (let r = 0; r < 10; r++)
+      for (let c = 0; c < 10; c++) {
+        const cell = state.board[r][c];
+        if (cell && !cell.lake && pred(cell)) return { piece: cell, row: r, col: c };
+      }
+    return null;
+  }
+
+  function evaluate(state, beliefs, forOwner) {
+    if (state.winner === forOwner) return 1e6;
+    if (state.winner && state.winner !== forOwner) return -1e6;
+
+    const other = forOwner === "red" ? "blue" : "red";
+    let score = 0;
+
+    // material
+    for (let r = 0; r < 10; r++)
+      for (let c = 0; c < 10; c++) {
+        const cell = state.board[r][c];
+        if (!cell || cell.lake) continue;
+        if (cell.owner === forOwner) {
+          score += PIECE_VALUE[cell.rank] ?? 0;
+        } else if (forOwner === beliefs.viewer && beliefs.pieces[cell.id]) {
+          score -= expectedValue(beliefs.pieces[cell.id]);
+        } else {
+          score -= PIECE_VALUE[cell.rank] ?? 40;
+        }
+      }
+
+    // own flag safety
+    const myFlag = findPiece(state, (p) => p.owner === forOwner && p.rank === "F");
+    if (myFlag) {
+      const fp = [myFlag.row, myFlag.col];
+      for (let r = 0; r < 10; r++)
+        for (let c = 0; c < 10; c++) {
+          const cell = state.board[r][c];
+          if (!cell || cell.lake) continue;
+          if (cell.owner === other) {
+            const d = manhattan([r, c], fp);
+            if (d <= 3) score -= (4 - d) * W.flagSafety;
+          }
+          if (cell.owner === forOwner && cell.rank === "B" && manhattan([r, c], fp) === 1) {
+            score += W.bombGuard;
+          }
+        }
+    }
+
+    // mobility
+    score += W.mobility * globalThis.Stratego.Engine.legalMoves(state, forOwner).length;
+
+    // flag hunt
+    const enemyFlag = findPiece(state, (p) => p.owner === other && p.rank === "F");
+    const target = enemyFlag
+      ? [enemyFlag.row, enemyFlag.col]
+      : [other === "red" ? 9 : 0, 4];
+    let best = Infinity;
+    for (let r = 0; r < 10; r++)
+      for (let c = 0; c < 10; c++) {
+        const cell = state.board[r][c];
+        if (cell && !cell.lake && cell.owner === forOwner &&
+            cell.rank !== "B" && cell.rank !== "F") {
+          best = Math.min(best, manhattan([r, c], target));
+        }
+      }
+    if (best !== Infinity) score -= W.flagHunt * best;
+
+    return score;
+  }
+
+  function expectedMoveScore(state, beliefs, move, forOwner) {
+    const Eng = globalThis.Stratego.Engine;
+    if (!move.isAttack) {
+      const { state: ns } = Eng.applyMove(state, move);
+      return evaluate(ns, beliefs, forOwner);
+    }
+    const [tr, tc] = move.to;
+    const defender = state.board[tr][tc];
+    const entry = beliefs.viewer === forOwner ? beliefs.pieces[defender.id] : null;
+    if (!entry || entry.known != null) {
+      const { state: ns } = Eng.applyMove(state, move);
+      return evaluate(ns, beliefs, forOwner);
+    }
+    let total = 0, wsum = 0;
+    for (const t of RANK_TYPES) {
+      const p = entry.probs[t] || 0;
+      if (p < 0.02) continue;
+      const trial = Eng.cloneState(state);
+      trial.board[tr][tc].rank = t;
+      trial.board[tr][tc].revealed = true;
+      const { state: ns } = Eng.applyMove(trial, move);
+      total += p * evaluate(ns, beliefs, forOwner);
+      wsum += p;
+    }
+    return wsum > 0 ? total / wsum : evaluate(state, beliefs, forOwner);
+  }
+
+  function chooseMove(state, beliefs, opts) {
+    const Eng = globalThis.Stratego.Engine;
+    const aiOwner = state.turn;
+    const legal = Eng.legalMoves(state, aiOwner);
+    if (legal.length === 0) return null;
+    const level = (opts && opts.level) || "medium";
+    const rng = opts && opts.rng;
+
+    const scored = legal.map((m) => ({
+      m, s: expectedMoveScore(state, beliefs, m, aiOwner),
+    }));
+    scored.sort((a, b) => b.s - a.s ||
+      a.m.pieceId - b.m.pieceId ||
+      (a.m.to[0] - b.m.to[0]) ||
+      (a.m.to[1] - b.m.to[1]));
+
+    if (level === "easy" && rng && rng.next() < 0.35) {
+      const k = Math.min(5, scored.length);
+      return scored[rng.int(k)].m;
+    }
+    return scored[0].m;
+  }
+
   return {
     RANK_TYPES, redactState, createBeliefs, applyMoveTells, applyPositionalPrior,
+    PIECE_VALUE, expectedValue, evaluate, expectedMoveScore, chooseMove,
   };
 })();
 </script>
