@@ -200,10 +200,93 @@ globalThis.Stratego.Engine = (function () {
     );
   }
 
+  function resolveCombat(a, d) {
+    if (d === "F") return "attacker";
+    if (d === "B") return a === 3 ? "attacker" : "defender";
+    if (a === 1 && d === 10) return "attacker";
+    if (a > d) return "attacker";
+    if (a < d) return "defender";
+    return "both";
+  }
+
+  function other(owner) { return owner === "red" ? "blue" : "red"; }
+
+  function applyMove(state, move) {
+    const s = cloneState(state);
+    const [fr, fc] = move.from;
+    const [tr, tc] = move.to;
+    const mover = s.board[fr][fc];
+    if (!mover || mover.lake || mover.owner !== s.turn || mover.id !== move.pieceId)
+      throw new Error("illegal applyMove: from-square is not the mover's piece");
+
+    const result = {
+      move, combat: null, revealed: [], captured: [],
+      winner: null, winReason: null,
+    };
+
+    mover.hasMoved = true;
+    s.moveHistory.push({ ...move });
+    (s.pieceMoveLog[mover.id] ||= []).push({ from: [fr, fc], to: [tr, tc] });
+
+    const target = s.board[tr][tc];
+    if (!target) {
+      s.board[tr][tc] = mover;
+      s.board[fr][fc] = null;
+    } else {
+      const outcome = resolveCombat(mover.rank, target.rank);
+      result.combat = {
+        attacker: { id: mover.id, rank: mover.rank, owner: mover.owner },
+        defender: { id: target.id, rank: target.rank, owner: target.owner },
+        outcome, square: [tr, tc],
+      };
+      s.board[fr][fc] = null;
+      if (outcome === "attacker") {
+        result.captured.push(target.id);
+        if (target.rank === "F") {
+          result.winner = mover.owner;
+          result.winReason = "flag";
+        }
+        mover.revealed = true;
+        result.revealed.push(mover.id);
+        s.board[tr][tc] = mover;
+      } else if (outcome === "defender") {
+        result.captured.push(mover.id);
+        target.revealed = true;
+        result.revealed.push(target.id);
+      } else {
+        result.captured.push(mover.id, target.id);
+        s.board[tr][tc] = null;
+      }
+    }
+
+    s.turn = other(s.turn);
+
+    if (result.winner) {
+      s.winner = result.winner;
+      s.winReason = result.winReason;
+    } else if (legalMoves(s, s.turn).length === 0) {
+      result.winner = other(s.turn);
+      result.winReason = "no-moves";
+      s.winner = result.winner;
+      s.winReason = "no-moves";
+    }
+
+    return { state: s, result };
+  }
+
+  function isGameOver(state) {
+    return {
+      over: state.winner !== null,
+      winner: state.winner,
+      reason: state.winReason,
+    };
+  }
+
   return {
     ROWS, COLS, RANKS,
     isLake, deployRows, validateSetup, newGame, cloneState, pieceAt,
     inBounds, isImmovable, legalMoves, movesForPiece,
+    resolveCombat, applyMove, isGameOver,
   };
 })();
 </script>
