@@ -157,9 +157,53 @@ globalThis.Stratego.Engine = (function () {
     return cell && !cell.lake ? cell : null;
   }
 
+  const DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+  function inBounds(r, c) { return r >= 0 && r < ROWS && c >= 0 && c < COLS; }
+
+  function isImmovable(rank) { return rank === "B" || rank === "F"; }
+
+  function legalMoves(state, owner) {
+    const moves = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const p = pieceAt(state, r, c);
+        if (!p || p.owner !== owner || isImmovable(p.rank)) continue;
+        const maxStep = p.rank === 2 ? Math.max(ROWS, COLS) : 1;
+        for (const [dr, dc] of DIRS) {
+          for (let step = 1; step <= maxStep; step++) {
+            const nr = r + dr * step, nc = c + dc * step;
+            if (!inBounds(nr, nc)) break;
+            const cell = state.board[nr][nc];
+            if (cell && cell.lake) break;
+            if (!cell) {
+              moves.push({ pieceId: p.id, from: [r, c], to: [nr, nc], isAttack: false });
+              continue;
+            }
+            // occupied
+            if (cell.owner !== owner) {
+              moves.push({ pieceId: p.id, from: [r, c], to: [nr, nc], isAttack: true });
+            }
+            break; // any piece (friend or foe) stops the slide
+          }
+        }
+      }
+    }
+    return moves;
+  }
+
+  function movesForPiece(state, row, col) {
+    const p = pieceAt(state, row, col);
+    if (!p) return [];
+    return legalMoves(state, p.owner).filter(
+      (m) => m.from[0] === row && m.from[1] === col
+    );
+  }
+
   return {
     ROWS, COLS, RANKS,
     isLake, deployRows, validateSetup, newGame, cloneState, pieceAt,
+    inBounds, isImmovable, legalMoves, movesForPiece,
   };
 })();
 </script>
