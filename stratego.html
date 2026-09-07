@@ -163,6 +163,17 @@ globalThis.Stratego.Engine = (function () {
 
   function isImmovable(rank) { return rank === "B" || rank === "F"; }
 
+  function samePos(a, b) { return a[0] === b[0] && a[1] === b[1]; }
+
+  function violatesTwoSquares(state, pieceId, from, to) {
+    const log = state.pieceMoveLog[pieceId];
+    if (!log || log.length < 2) return false;
+    const last = log[log.length - 1];
+    const prev = log[log.length - 2];
+    return samePos(last.from, to) && samePos(last.to, from) &&
+           samePos(prev.from, from) && samePos(prev.to, to);
+  }
+
   function legalMoves(state, owner) {
     const moves = [];
     for (let r = 0; r < ROWS; r++) {
@@ -176,13 +187,18 @@ globalThis.Stratego.Engine = (function () {
             if (!inBounds(nr, nc)) break;
             const cell = state.board[nr][nc];
             if (cell && cell.lake) break;
+            const addMove = (isAttack) => {
+              if (!violatesTwoSquares(state, p.id, [r, c], [nr, nc])) {
+                moves.push({ pieceId: p.id, from: [r, c], to: [nr, nc], isAttack });
+              }
+            };
             if (!cell) {
-              moves.push({ pieceId: p.id, from: [r, c], to: [nr, nc], isAttack: false });
+              addMove(false);
               continue;
             }
             // occupied
             if (cell.owner !== owner) {
-              moves.push({ pieceId: p.id, from: [r, c], to: [nr, nc], isAttack: true });
+              addMove(true);
             }
             break; // any piece (friend or foe) stops the slide
           }
