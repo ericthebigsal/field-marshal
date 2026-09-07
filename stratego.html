@@ -142,9 +142,9 @@ globalThis.Stratego.Engine = (function () {
     return {
       board,
       turn: state.turn,
-      moveHistory: state.moveHistory.map((m) => ({ ...m })),
+      moveHistory: state.moveHistory.map((m) => ({ ...m, from: m.from ? [...m.from] : m.from, to: m.to ? [...m.to] : m.to })),
       pieceMoveLog: Object.fromEntries(
-        Object.entries(state.pieceMoveLog).map(([k, v]) => [k, v.map((e) => ({ ...e }))])
+        Object.entries(state.pieceMoveLog).map(([k, v]) => [k, v.map((e) => ({ from: [...e.from], to: [...e.to] }))])
       ),
       winner: state.winner,
       winReason: state.winReason,

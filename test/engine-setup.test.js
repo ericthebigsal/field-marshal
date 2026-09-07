@@ -104,3 +104,15 @@ test("cloneState produces an independent deep copy", () => {
   assert.notEqual(s.board[9][0].rank, 999);
   assert.equal(s.turn, "red");
 });
+
+test("cloneState deep-copies pieceMoveLog from/to arrays", () => {
+  const s = Engine.newGame(fullSetup("red"), fullSetup("blue"));
+  // Manually add a pieceMoveLog entry (simulating what happens in later tasks)
+  s.pieceMoveLog[1] = [{ from: [9, 0], to: [8, 0] }];
+  const c = Engine.cloneState(s);
+  // Mutate the clone's pieceMoveLog
+  c.pieceMoveLog[1][0].from[0] = 99;
+  // Verify the original is unchanged
+  assert.equal(s.pieceMoveLog[1][0].from[0], 9);
+  assert.equal(c.pieceMoveLog[1][0].from[0], 99);
+});
