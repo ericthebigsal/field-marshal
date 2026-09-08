@@ -549,7 +549,13 @@ globalThis.Stratego.AI = (function () {
   }
 
   const PIECE_VALUE = { 10: 400, 9: 200, 8: 100, 7: 75, 6: 50, 5: 35, 4: 25, 3: 45, 2: 15, 1: 60, B: 20, F: 2000 };
-  const W = { flagSafety: 15, bombGuard: 10, mobility: 0.5, flagHunt: 2 };
+  const W = { flagSafety: 15, bombGuard: 10, mobility: 0.5, flagHunt: 2, dangerWeight: 0.5 };
+  const ADJ = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+  function beatsAsAttacker(aRank, mRank) {
+    const oc = globalThis.Stratego.Engine.resolveCombat(aRank, mRank);
+    return oc === "attacker" || oc === "both";
+  }
 
   function expectedValue(entry) {
     if (entry.known != null) return PIECE_VALUE[entry.known];
@@ -627,6 +633,40 @@ globalThis.Stratego.AI = (function () {
       }
     if (best !== Infinity) score -= W.flagHunt * best;
 
+    // destination-square danger: for each of our movable pieces, the probability
+    // it is captured by an adjacent enemy next turn, weighted by its value.
+    // Only meaningful when we hold belief data on the enemy (forOwner is viewer).
+    if (forOwner === beliefs.viewer) {
+      for (let r = 0; r < 10; r++)
+        for (let c = 0; c < 10; c++) {
+          const cell = state.board[r][c];
+          if (!cell || cell.lake || cell.owner !== forOwner) continue;
+          if (cell.rank === "B" || cell.rank === "F") continue;
+          let pLost = 0;
+          for (const [dr, dc] of ADJ) {
+            const nr = r + dr, nc = c + dc;
+            if (nr < 0 || nr > 9 || nc < 0 || nc > 9) continue;
+            const en = state.board[nr][nc];
+            if (!en || en.lake || en.owner === forOwner) continue;
+            const entry = beliefs.pieces[en.id];
+            let p = 0;
+            if (entry && entry.known == null) {
+              for (const t of RANK_TYPES) {
+                if (t === "B" || t === "F") continue; // immovable, can't attack
+                if (beatsAsAttacker(t, cell.rank)) p += entry.probs[t] || 0;
+              }
+            } else {
+              const rk = entry && entry.known != null ? entry.known : en.rank;
+              if (rk == null || rk === "B" || rk === "F") continue;
+              p = beatsAsAttacker(rk, cell.rank) ? 1 : 0;
+            }
+            if (p > pLost) pLost = p;
+          }
+          if (pLost > 0)
+            score -= W.dangerWeight * pLost * (PIECE_VALUE[cell.rank] ?? 0);
+        }
+    }
+
     return score;
   }
 
@@ -685,24 +725,38 @@ globalThis.Stratego.AI = (function () {
       return { score: evaluate(state, beliefs, forOwner), move: null, nodes: budget.n };
     }
 
+    const chanceOverRank = (move, sq) => {
+      const [sr, sc] = sq;
+      const entry = beliefs.pieces[state.board[sr][sc].id];
+      const ranks = topRanks(entry, 4);
+      const wsum = ranks.reduce((a, pair) => a + pair[1], 0) || 1;
+      let acc = 0;
+      for (const [t, p] of ranks) {
+        const trial = Eng.cloneState(state);
+        trial.board[sr][sc].rank = t;
+        trial.board[sr][sc].revealed = true;
+        const { state: ns } = Eng.applyMove(trial, move);
+        acc += (p / wsum) * search(ns, beliefs, forOwner, depth - 1, budget).score;
+        if (budget.n >= NODE_CAP) break;
+      }
+      return acc;
+    };
+
     const childScore = (move) => {
       if (move.isAttack) {
         const [tr, tc] = move.to;
-        const defender = state.board[tr][tc];
-        const entry = beliefs.viewer === mover ? beliefs.pieces[defender.id] : null;
-        if (entry && entry.known == null) {
-          const ranks = topRanks(entry, 4);
-          const wsum = ranks.reduce((a, pair) => a + pair[1], 0) || 1;
-          let acc = 0;
-          for (const [t, p] of ranks) {
-            const trial = Eng.cloneState(state);
-            trial.board[tr][tc].rank = t;
-            trial.board[tr][tc].revealed = true;
-            const { state: ns } = Eng.applyMove(trial, move);
-            acc += (p / wsum) * search(ns, beliefs, forOwner, depth - 1, budget).score;
-            if (budget.n >= NODE_CAP) break;
-          }
-          return acc;
+        if (mover === forOwner) {
+          // we attack: chance node over the unknown DEFENDER's rank
+          const defender = state.board[tr][tc];
+          const entry = beliefs.viewer === mover ? beliefs.pieces[defender.id] : null;
+          if (entry && entry.known == null) return chanceOverRank(move, move.to);
+        } else {
+          // opponent attacks us: chance node over the unknown ATTACKER's rank.
+          // Without this, applyMove on the redacted board resolves a null-rank
+          // attacker as an automatic defender win — the AI would think every
+          // unknown enemy attack against it suicides.
+          const entry = beliefs.pieces[move.pieceId];
+          if (entry && entry.known == null) return chanceOverRank(move, move.from);
         }
       }
       const { state: ns } = Eng.applyMove(state, move);
