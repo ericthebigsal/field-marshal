@@ -328,6 +328,8 @@ globalThis.Stratego.Engine = (function () {
     const mover = s.board[fr][fc];
     if (!mover || mover.lake || mover.owner !== s.turn || mover.id !== move.pieceId)
       throw new Error("illegal applyMove: from-square is not the mover's piece");
+    if (!inBounds(tr, tc) || isLake(tr, tc))
+      throw new Error("illegal applyMove: destination is off-board or a lake");
 
     const result = {
       move, combat: null, revealed: [], captured: [],
@@ -895,7 +897,7 @@ globalThis.Stratego.AI = (function () {
   return {
     RANK_TYPES, redactState, createBeliefs, applyMoveTells, applyPositionalPrior,
     PIECE_VALUE, expectedValue, evaluate, expectedMoveScore, chooseMove,
-    DIFFICULTY, NODE_CAP, search, topRanks,
+    DIFFICULTY, NODE_CAP, search, topRanks, cloneBeliefs,
     _lastSearchDiag: () => lastDiag,
   };
 })();
@@ -1174,14 +1176,11 @@ globalThis.Stratego = globalThis.Stratego || {};
     return COLS_LABEL[c] + String(10 - r);
   }
 
-  function structuredCloneBeliefs(b) {
-    return {
-      viewer: b.viewer, opponent: b.opponent,
-      pieces: Object.fromEntries(Object.entries(b.pieces).map(
-        ([k, v]) => [k, { probs: { ...v.probs }, known: v.known }])),
-      _deadByRank: { ...(b._deadByRank || {}) },
-    };
-  }
+  // in-memory + persisted undo history use one bound
+  const UNDO_DEPTH = 10;
+
+  // deep-copies a beliefs object; delegates to the AI module's implementation
+  const structuredCloneBeliefs = (b) => globalThis.Stratego.AI.cloneBeliefs(b);
 
   function describeMove(result, prevState) {
     const m = result.move;
@@ -1239,7 +1238,7 @@ globalThis.Stratego = globalThis.Stratego || {};
       rngState: g.rng.state(),
       history: g.history.slice(),
     });
-    if (g.undoStack.length > 10) g.undoStack.shift();
+    if (g.undoStack.length > UNDO_DEPTH) g.undoStack.shift();
     const prev = g.engineState;
     const { state, result } = E().applyMove(g.engineState, move);
     g.engineState = state;
@@ -1431,7 +1430,7 @@ globalThis.Stratego = globalThis.Stratego || {};
         rngState: g.rng.state(), humanOwner: g.humanOwner, aiOwner: g.aiOwner,
         deployPlacements: g.deployPlacements, engineState: g.engineState,
         beliefs: g.beliefs, history: g.history,
-        undoStack: (g.undoStack || []).slice(-5).map(serializeSnapshot),
+        undoStack: (g.undoStack || []).slice(-UNDO_DEPTH).map(serializeSnapshot),
       };
       localStorage.setItem(UI.SAVE_KEY, JSON.stringify(payload));
     } catch (e) { /* ignore quota / disabled storage */ }

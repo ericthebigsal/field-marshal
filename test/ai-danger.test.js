@@ -83,9 +83,9 @@ test("chooseMove (medium) does not park a mid-value piece next to an unmoved unk
 
 test("search expectation-node attacker chance expansion: deterministic & legal", () => {
   const s = makeState([
-    { id: 1, row: 5, col: 5, owner: "blue", rank: 8 },
-    { id: 2, row: 5, col: 6, owner: "red", rank: 6 },       // unknown; can attack blue
-    { id: 3, row: 2, col: 2, owner: "blue", rank: 5 },
+    { id: 1, row: 3, col: 3, owner: "blue", rank: 8 },
+    { id: 2, row: 3, col: 4, owner: "red", rank: 6 },       // unknown; can attack blue
+    { id: 3, row: 2, col: 0, owner: "blue", rank: 5 },
     { id: 4, row: 0, col: 0, owner: "blue", rank: "F" },
     { id: 5, row: 9, col: 9, owner: "red", rank: "F" },
   ], "blue");

@@ -129,3 +129,15 @@ test("applyMove throws if from-square is not the mover's piece", () => {
   assert.throws(() =>
     Engine.applyMove(s, { pieceId: 1, from: [3, 3], to: [3, 4], isAttack: false }));
 });
+
+test("applyMove throws if the destination is a lake or off the board", () => {
+  const s = makeState([{ id: 1, row: 3, col: 2, owner: "red", rank: 6 }]);
+  assert.throws(
+    () => Engine.applyMove(s, { pieceId: 1, from: [3, 2], to: [4, 2], isAttack: false }),
+    /lake/);
+  assert.throws(
+    () => Engine.applyMove(
+      makeState([{ id: 1, row: 0, col: 0, owner: "red", rank: 6 }]),
+      { pieceId: 1, from: [0, 0], to: [-1, 0], isAttack: false }),
+    /off-board|lake/);
+});
