@@ -1346,7 +1346,8 @@ globalThis.Stratego = globalThis.Stratego || {};
     if (!raw) return false;
     try {
       const d = JSON.parse(raw);
-      if (d.version !== 1 || !d.phase || !d.engineState) throw new Error("bad shape");
+      if (d.version !== 1 || !d.phase || !d.engineState || !d.beliefs)
+        throw new Error("bad shape");
       Game.state = {
         phase: d.phase, engineState: d.engineState, beliefs: d.beliefs,
         rng: R().fromState((d.rngState || 0) >>> 0), seed: d.seed, difficulty: d.difficulty,
@@ -1364,6 +1365,19 @@ globalThis.Stratego = globalThis.Stratego || {};
     }
   };
 
+  // If a save was taken in the ~450ms window between the human's move and the
+  // scheduled AI turn, engineState.turn is the AI's side and nothing would ever
+  // schedule aiTurn on resume — the board freezes on "Computer thinking…".
+  // Re-arm the AI turn whenever we (re)enter the play screen and it's the AI's move.
+  Game.resumeAiIfPending = function () {
+    const g = Game.state;
+    if (!g || g.phase !== "play" || !g.engineState || g.engineState.winner) return;
+    if (g.engineState.turn === g.aiOwner) {
+      if (Game._aiTimer) clearTimeout(Game._aiTimer);
+      Game._aiTimer = setTimeout(Game.aiTurn, AI_THINK_MS);
+    }
+  };
+
   UI.boot = function () {
     ROOT = document.getElementById("app");
     const restored = UI.tryRestore();
@@ -1372,6 +1386,7 @@ globalThis.Stratego = globalThis.Stratego || {};
     } else {
       if (!restored) Game.newMatch();
       UI.render();
+      Game.resumeAiIfPending();
     }
   };
 
@@ -1379,7 +1394,10 @@ globalThis.Stratego = globalThis.Stratego || {};
     const wrap = el("div", { class: "banner" },
       el("div", { class: "card" },
         el("h2", { text: "Game in progress" }),
-        el("button", { onclick: () => { UI.render(); }, text: "Resume game" }),
+        el("button", {
+          onclick: () => { UI.render(); Game.resumeAiIfPending(); },
+          text: "Resume game",
+        }),
         el("button", {
           onclick: () => {
             const d = Game.state.difficulty;

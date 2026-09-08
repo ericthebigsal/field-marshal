@@ -22,6 +22,31 @@ test("a game in progress survives a reload", async ({ page }) => {
   await expect(page.getByTestId("move-log")).toHaveText(logBefore);
 });
 
+test("a save taken mid-AI-turn resumes without freezing", async ({ page }) => {
+  await page.goto(FILE);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.getByTestId("difficulty-select").selectOption("easy");
+  await page.getByTestId("btn-autofill").click();
+  await page.getByTestId("btn-start").click();
+  await page.locator('[data-testid="cell-6-0"]').click();
+  await page.locator('[data-testid="cell-5-0"]').click();
+  // Reload WITHOUT waiting for /your turn/ — the save is written synchronously
+  // in humanMove (before the AI timer), with engineState.turn === the AI side.
+  await page.waitForFunction(() => {
+    try {
+      const raw = localStorage.getItem("stratego.save.v1");
+      if (!raw) return false;
+      return JSON.parse(raw).engineState.turn === "blue";
+    } catch { return false; }
+  });
+  await page.reload();
+  const resume = page.getByRole("button", { name: /resume/i });
+  if (await resume.count()) await resume.click();
+  // The AI turn must be re-scheduled: the indicator returns to the human.
+  await expect(page.getByTestId("turn-indicator")).toContainText(/your turn/i, { timeout: 5000 });
+});
+
 test("New game from the resume prompt wipes the save", async ({ page }) => {
   await page.goto(FILE);
   await page.getByTestId("difficulty-select").selectOption("easy");
