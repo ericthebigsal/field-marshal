@@ -84,6 +84,33 @@ test("chooseMove deterministic per seed at every level", () => {
   }
 });
 
+test("expert steps down gradually on a node-cap hit (not straight to 1-ply)", () => {
+  // A dense scout-heavy midgame that blows the node cap at depth 4.
+  const pieces = [];
+  let id = 1;
+  for (let c = 0; c < 10; c++) {
+    pieces.push({ id: id++, row: 2, col: c, owner: "blue", rank: 2 });
+    pieces.push({ id: id++, row: 1, col: c, owner: "blue", rank: 6 });
+    pieces.push({ id: id++, row: 7, col: c, owner: "red", rank: 2 });
+    pieces.push({ id: id++, row: 8, col: c, owner: "red", rank: 6 });
+  }
+  pieces.push({ id: id++, row: 0, col: 4, owner: "blue", rank: "F" });
+  pieces.push({ id: id++, row: 9, col: 4, owner: "red", rank: "F" });
+  const s = makeState(pieces, "blue");
+  const b = AI.createBeliefs(s, "blue");
+  const m1 = AI.chooseMove(s, b, { level: "expert", rng: RNG.create(5) });
+  const diag = AI._lastSearchDiag();
+  const m2 = AI.chooseMove(s, b, { level: "expert", rng: RNG.create(5) });
+  assert.deepEqual(m1, m2, "deterministic");
+  assert.ok(legalContains(s, "blue", m1), "legal");
+  assert.ok(diag.depth >= 1 && diag.depth < 4, "stepped down below full depth");
+  assert.ok(diag.depth >= 2, "did not collapse straight to the 1-ply floor");
+});
+
+test("NODE_CAP was raised for deeper expert search", () => {
+  assert.ok(AI.NODE_CAP >= 60000);
+});
+
 test("search respects the node cap and still returns a legal root move", () => {
   // a fairly open midgame position
   const pieces = [];

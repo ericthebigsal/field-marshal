@@ -736,7 +736,8 @@ globalThis.Stratego.AI = (function () {
     hard:   { depth: 3, noise: 0 },
     expert: { depth: 4, noise: 0 },
   };
-  const NODE_CAP = 20000;
+  const NODE_CAP = 60000;
+  let lastDiag = { depth: 0, nodes: 0, cap: false };
 
   function topRanks(entry, k) {
     return RANK_TYPES
@@ -861,11 +862,22 @@ globalThis.Stratego.AI = (function () {
       return scored[0].m;
     }
 
-    const budget = { n: 0 };
+    let budget = { n: 0 };
     let res = search(state, b, aiOwner, cfg.depth, budget);
+    let depthUsed = cfg.depth;
+    // On a node-cap hit, step down one ply at a time rather than collapsing
+    // straight to 1-ply — a capped depth-4 is still worth more than depth-1,
+    // and depth-4 caps on a large fraction of real midgame turns.
     if ((!res.move || budget.n >= NODE_CAP) && cfg.depth > 1) {
-      res = search(state, b, aiOwner, 1, { n: 0 });
+      for (let d = cfg.depth - 1; d >= 1; d--) {
+        budget = { n: 0 };
+        const r = search(state, b, aiOwner, d, budget);
+        res = r;
+        depthUsed = d;
+        if (r.move && budget.n < NODE_CAP) break;
+      }
     }
+    lastDiag = { depth: depthUsed, nodes: budget.n, cap: budget.n >= NODE_CAP };
     let chosen = res.move || onePlyTop()[0].m;
 
     if (cfg.noise > 0 && rng && rng.next() < cfg.noise) {
@@ -884,6 +896,7 @@ globalThis.Stratego.AI = (function () {
     RANK_TYPES, redactState, createBeliefs, applyMoveTells, applyPositionalPrior,
     PIECE_VALUE, expectedValue, evaluate, expectedMoveScore, chooseMove,
     DIFFICULTY, NODE_CAP, search, topRanks,
+    _lastSearchDiag: () => lastDiag,
   };
 })();
 </script>
