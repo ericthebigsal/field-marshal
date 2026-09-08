@@ -563,32 +563,146 @@ globalThis.Stratego.AI = (function () {
     return wsum > 0 ? total / wsum : evaluate(state, beliefs, forOwner);
   }
 
+  const DIFFICULTY = {
+    easy:   { depth: 1, noise: 0.35 },
+    medium: { depth: 2, noise: 0.1 },
+    hard:   { depth: 3, noise: 0 },
+    expert: { depth: 4, noise: 0 },
+  };
+  const NODE_CAP = 20000;
+
+  function topRanks(entry, k) {
+    return RANK_TYPES
+      .map((t) => [t, entry.probs[t] || 0])
+      .filter((pair) => pair[1] > 0.02)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, k);
+  }
+
+  function search(state, beliefs, forOwner, depth, budget) {
+    const Eng = E();
+    budget.n++;
+    if (depth <= 0 || state.winner || budget.n >= NODE_CAP) {
+      return { score: evaluate(state, beliefs, forOwner), move: null, nodes: budget.n };
+    }
+    const mover = state.turn;
+    const legal = Eng.legalMoves(state, mover);
+    if (legal.length === 0) {
+      return { score: evaluate(state, beliefs, forOwner), move: null, nodes: budget.n };
+    }
+
+    const childScore = (move) => {
+      if (move.isAttack) {
+        const [tr, tc] = move.to;
+        const defender = state.board[tr][tc];
+        const entry = beliefs.viewer === mover ? beliefs.pieces[defender.id] : null;
+        if (entry && entry.known == null) {
+          const ranks = topRanks(entry, 4);
+          const wsum = ranks.reduce((a, pair) => a + pair[1], 0) || 1;
+          let acc = 0;
+          for (const [t, p] of ranks) {
+            const trial = Eng.cloneState(state);
+            trial.board[tr][tc].rank = t;
+            trial.board[tr][tc].revealed = true;
+            const { state: ns } = Eng.applyMove(trial, move);
+            acc += (p / wsum) * search(ns, beliefs, forOwner, depth - 1, budget).score;
+            if (budget.n >= NODE_CAP) break;
+          }
+          return acc;
+        }
+      }
+      const { state: ns } = Eng.applyMove(state, move);
+      return search(ns, beliefs, forOwner, depth - 1, budget).score;
+    };
+
+    const ordered = legal.slice().sort((a, b) =>
+      (b.isAttack - a.isAttack) || (a.pieceId - b.pieceId));
+
+    if (mover === forOwner) {
+      let best = -Infinity;
+      let bestMove = ordered[0];
+      for (const m of ordered) {
+        const sc = childScore(m);
+        if (sc > best || (sc === best && m.pieceId < bestMove.pieceId)) {
+          best = sc;
+          bestMove = m;
+        }
+        if (budget.n >= NODE_CAP) break;
+      }
+      return { score: best, move: bestMove, nodes: budget.n };
+    }
+
+    let total = 0;
+    let wsum = 0;
+    for (const m of ordered.slice(0, 12)) {
+      const w = m.isAttack ? 2 : 1;
+      total += w * childScore(m);
+      wsum += w;
+      if (budget.n >= NODE_CAP) break;
+    }
+    return {
+      score: wsum ? total / wsum : evaluate(state, beliefs, forOwner),
+      move: null,
+      nodes: budget.n,
+    };
+  }
+
   function chooseMove(state, beliefs, opts) {
-    const Eng = globalThis.Stratego.Engine;
+    const Eng = E();
     const aiOwner = state.turn;
     const legal = Eng.legalMoves(state, aiOwner);
     if (legal.length === 0) return null;
     const level = (opts && opts.level) || "medium";
+    const cfg = DIFFICULTY[level] || DIFFICULTY.medium;
     const rng = opts && opts.rng;
 
-    const scored = legal.map((m) => ({
-      m, s: expectedMoveScore(state, beliefs, m, aiOwner),
-    }));
-    scored.sort((a, b) => b.s - a.s ||
-      a.m.pieceId - b.m.pieceId ||
-      (a.m.to[0] - b.m.to[0]) ||
-      (a.m.to[1] - b.m.to[1]));
-
-    if (level === "easy" && rng && rng.next() < 0.35) {
-      const k = Math.min(5, scored.length);
-      return scored[rng.int(k)].m;
+    let b = beliefs;
+    if (level === "hard" || level === "expert") {
+      b = applyPositionalPrior(beliefs, state, level);
     }
-    return scored[0].m;
+
+    const onePlyTop = () => {
+      const scored = legal.map((m) => ({
+        m, s: expectedMoveScore(state, b, m, aiOwner),
+      }));
+      scored.sort((x, y) => y.s - x.s ||
+        x.m.pieceId - y.m.pieceId ||
+        (x.m.to[0] - y.m.to[0]) ||
+        (x.m.to[1] - y.m.to[1]));
+      return scored;
+    };
+
+    if (level === "easy") {
+      const scored = onePlyTop();
+      if (rng && rng.next() < cfg.noise) {
+        return scored[rng.int(Math.min(5, scored.length))].m;
+      }
+      return scored[0].m;
+    }
+
+    const budget = { n: 0 };
+    let res = search(state, b, aiOwner, cfg.depth, budget);
+    if ((!res.move || budget.n >= NODE_CAP) && cfg.depth > 1) {
+      res = search(state, b, aiOwner, 1, { n: 0 });
+    }
+    let chosen = res.move || onePlyTop()[0].m;
+
+    if (cfg.noise > 0 && rng && rng.next() < cfg.noise) {
+      const scored = onePlyTop();
+      chosen = scored[rng.int(Math.min(5, scored.length))].m;
+    }
+
+    if (!legal.some((x) => x.pieceId === chosen.pieceId &&
+        x.to[0] === chosen.to[0] && x.to[1] === chosen.to[1])) {
+      chosen = onePlyTop()[0].m;
+    }
+    return chosen;
   }
 
   return {
     RANK_TYPES, redactState, createBeliefs, applyMoveTells, applyPositionalPrior,
     PIECE_VALUE, expectedValue, evaluate, expectedMoveScore, chooseMove,
+    DIFFICULTY, NODE_CAP, search,
   };
 })();
 </script>
