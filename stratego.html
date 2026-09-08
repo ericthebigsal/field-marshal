@@ -5,9 +5,90 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stratego</title>
 <style>
-/* styles added in Task 9 */
-:root { color-scheme: light dark; }
-body { margin: 0; font-family: system-ui, sans-serif; }
+:root {
+  color-scheme: dark;
+  --board-size: min(92vw, 66vh, 620px);
+  --cell: calc(var(--board-size) / 10);
+  --wood-1: #6b4a2b; --wood-2: #8a6239; --felt: #1f5c3a;
+  --red: #b32b2b; --red-dark: #7d1d1d;
+  --blue: #274b8f; --blue-dark: #1b3360;
+  --ink: #1c1c1c; --paper: #f2e9d8;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #2b2622; color: var(--paper);
+  display: flex; justify-content: center; padding: 12px;
+}
+.app {
+  display: grid; gap: 14px;
+  grid-template-columns: minmax(0, auto) 240px;
+  align-items: start;
+}
+@media (max-width: 720px) { .app { grid-template-columns: 1fr; } }
+.board {
+  width: var(--board-size); height: var(--board-size);
+  display: grid; grid-template: repeat(10, 1fr) / repeat(10, 1fr);
+  border: 6px solid #3c2a18; border-radius: 6px;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,.06) 0 2px, transparent 2px 8px),
+    linear-gradient(135deg, var(--wood-2), var(--wood-1));
+  box-shadow: 0 10px 30px rgba(0,0,0,.5);
+}
+.cell { position: relative; border: 1px solid rgba(0,0,0,.15); }
+.cell.lake { background: var(--felt); box-shadow: inset 0 0 12px rgba(0,0,0,.55); }
+.cell.deployable { outline: 2px dashed rgba(255,255,255,.25); outline-offset: -3px; }
+.cell.legal::after {
+  content: ""; position: absolute; inset: 30%;
+  border-radius: 50%; background: rgba(255,255,0,.5);
+}
+.cell.selected { outline: 3px solid #ffd54a; outline-offset: -3px; }
+.token {
+  position: absolute; inset: 6%; border-radius: 12%;
+  display: grid; place-content: center; text-align: center;
+  font-weight: 700; cursor: grab; user-select: none;
+  box-shadow: 0 3px 0 rgba(0,0,0,.4), inset 0 2px 3px rgba(255,255,255,.25);
+}
+.token[data-owner="red"] { background: linear-gradient(var(--red), var(--red-dark)); color: #fff; }
+.token[data-owner="blue"] { background: linear-gradient(var(--blue), var(--blue-dark)); color: #fff; }
+.token[data-owner="hidden"] { background: linear-gradient(#5b4a36, #3c3021); color: transparent; }
+.token[data-owner="hidden"]::before {
+  content: "\2605"; color: rgba(255,255,255,.18);
+  font-size: calc(var(--cell) * .5);
+}
+.token .rank { font-size: calc(var(--cell) * .42); line-height: 1; }
+.token .name { font-size: calc(var(--cell) * .13); opacity: .85; }
+.token.dragging { opacity: .4; }
+.panel {
+  background: rgba(0,0,0,.25); border-radius: 8px; padding: 12px;
+  display: grid; gap: 10px;
+}
+.tray { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.tray .slot {
+  aspect-ratio: 1; position: relative; background: rgba(255,255,255,.06);
+  border-radius: 6px; display: grid; place-content: center;
+}
+.tray .slot[data-count="0"] { opacity: .25; pointer-events: none; }
+.tray .count { position: absolute; right: 3px; bottom: 2px; font-size: 11px; }
+button {
+  font: inherit; padding: 8px 10px; border-radius: 6px; border: 0;
+  background: #d8c9a8; color: #201a12; cursor: pointer;
+}
+button:disabled { opacity: .4; cursor: not-allowed; }
+select {
+  font: inherit; padding: 6px 8px; border-radius: 6px; border: 0;
+  background: #d8c9a8; color: #201a12;
+}
+.log { font-size: 12px; max-height: 220px; overflow: auto; display: grid; gap: 2px; }
+.banner {
+  position: fixed; inset: 0; display: grid; place-content: center;
+  background: rgba(0,0,0,.6); z-index: 10;
+}
+.banner .card {
+  background: var(--paper); color: var(--ink); padding: 24px;
+  border-radius: 10px; text-align: center; display: grid; gap: 12px;
+}
 </style>
 </head>
 <body>
@@ -709,9 +790,306 @@ globalThis.Stratego.AI = (function () {
 
 <script id="ui">
 globalThis.Stratego = globalThis.Stratego || {};
-globalThis.Stratego.UI = (function () {
+(function () {
   "use strict";
-  return {}; // filled in Tasks 9-11
+
+  const E = () => globalThis.Stratego.Engine;
+  const A = () => globalThis.Stratego.AI;
+  const R = () => globalThis.Stratego.RNG;
+
+  const RANK_NAME = Object.fromEntries([
+    [10, "Marshal"], [9, "General"], [8, "Colonel"], [7, "Major"], [6, "Captain"],
+    [5, "Lieutenant"], [4, "Sergeant"], [3, "Miner"], [2, "Scout"], [1, "Spy"],
+    ["B", "Bomb"], ["F", "Flag"],
+  ]);
+  const RANK_ORDER = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, "B", "F"];
+  const REQUIRED = { 10: 1, 9: 1, 8: 2, 7: 3, 6: 4, 5: 4, 4: 4, 3: 5, 2: 8, 1: 1, B: 6, F: 1 };
+
+  const Game = {
+    state: null,
+    newMatch(difficulty = "medium", seed) {
+      const s = (seed ?? Date.now()) >>> 0;
+      Game.state = {
+        phase: "deploy", engineState: null, beliefs: null,
+        rng: R().create(s), seed: s, difficulty,
+        aiOwner: "blue", humanOwner: "red",
+        deployPlacements: [], undoStack: [], history: [],
+      };
+    },
+    _weightedArmy(owner, rng) {
+      // returns {row,col,rank}[] covering all 40 squares of owner's deploy rows
+      const rows = E().deployRows(owner);
+      const back = owner === "red" ? rows[rows.length - 1] : rows[0];
+      const squares = [];
+      for (const row of rows) for (let col = 0; col < 10; col++) squares.push({ row, col });
+      const flagScore = (sq) =>
+        (sq.row === back ? 3 : 0) + (sq.col <= 1 || sq.col >= 8 ? 1 : 0);
+      const bag = [];
+      for (const r of RANK_ORDER) for (let i = 0; i < REQUIRED[r]; i++) bag.push(r);
+      const ranked = squares.slice().sort((a, b) => flagScore(b) - flagScore(a));
+      const flagSq = ranked[rng.int(Math.min(4, ranked.length))];
+      const used = new Set([flagSq.row + "," + flagSq.col]);
+      const out = [{ row: flagSq.row, col: flagSq.col, rank: "F" }];
+      bag.splice(bag.indexOf("F"), 1);
+      const bombPref = (sq) =>
+        (Math.abs(sq.row - flagSq.row) + Math.abs(sq.col - flagSq.col) === 1 ? 3 : 0) +
+        (sq.row === back ? 1 : 0);
+      const rest = squares.filter((s) => !used.has(s.row + "," + s.col));
+      const bombRanked = rest.slice().sort((a, b) => bombPref(b) - bombPref(a));
+      for (let i = 0; i < REQUIRED.B; i++) {
+        const sq = bombRanked[i];
+        used.add(sq.row + "," + sq.col);
+        out.push({ row: sq.row, col: sq.col, rank: "B" });
+        bag.splice(bag.indexOf("B"), 1);
+      }
+      const remainingSquares = rng.shuffle(
+        squares.filter((s) => !used.has(s.row + "," + s.col)));
+      const remainingBag = rng.shuffle(bag);
+      for (let i = 0; i < remainingSquares.length; i++) {
+        out.push({
+          row: remainingSquares[i].row, col: remainingSquares[i].col,
+          rank: remainingBag[i],
+        });
+      }
+      return out;
+    },
+    autoSetupFor(owner) { return Game._weightedArmy(owner, Game.state.rng); },
+    autoFillDeployment() {
+      const placed = new Set(Game.state.deployPlacements.map((p) => p.row + "," + p.col));
+      const haveByRank = {};
+      for (const p of Game.state.deployPlacements)
+        haveByRank[p.rank] = (haveByRank[p.rank] || 0) + 1;
+      const need = {};
+      for (const r of RANK_ORDER) need[r] = REQUIRED[r] - (haveByRank[r] || 0);
+      const emptySquares = [];
+      for (const row of E().deployRows(Game.state.humanOwner))
+        for (let col = 0; col < 10; col++)
+          if (!placed.has(row + "," + col)) emptySquares.push({ row, col });
+      const fillBag = [];
+      for (const r of RANK_ORDER)
+        for (let i = 0; i < Math.max(0, need[r]); i++) fillBag.push(r);
+      const back = Game.state.humanOwner === "red" ? 9 : 0;
+      emptySquares.sort((a, b) =>
+        ((b.row === back) - (a.row === back)) ||
+        ((b.col <= 1 || b.col >= 8) - (a.col <= 1 || a.col >= 8)));
+      const shuffledBag = Game.state.rng.shuffle(fillBag)
+        .sort((a, b) => (b === "F") - (a === "F") || (b === "B") - (a === "B"));
+      for (let i = 0; i < emptySquares.length; i++) {
+        Game.state.deployPlacements.push({
+          row: emptySquares[i].row, col: emptySquares[i].col, rank: shuffledBag[i],
+        });
+      }
+    },
+    clearDeployment() { Game.state.deployPlacements = []; },
+    placeDeploy(row, col, rank) {
+      const rows = new Set(E().deployRows(Game.state.humanOwner));
+      if (!rows.has(row)) return { ok: false, error: "outside deploy zone" };
+      const have = Game.state.deployPlacements.filter((p) => p.rank === rank).length;
+      if (have >= REQUIRED[rank]) return { ok: false, error: "no more of that rank" };
+      Game.removeDeploy(row, col);
+      Game.state.deployPlacements.push({ row, col, rank });
+      return { ok: true };
+    },
+    removeDeploy(row, col) {
+      Game.state.deployPlacements = Game.state.deployPlacements.filter(
+        (p) => !(p.row === row && p.col === col));
+    },
+    deployPieceAt(row, col) {
+      return Game.state.deployPlacements.find((p) => p.row === row && p.col === col) || null;
+    },
+    deploymentComplete() {
+      return E().validateSetup(Game.state.humanOwner, Game.state.deployPlacements).ok;
+    },
+    startPlay() {
+      if (!Game.deploymentComplete()) return;
+      const ai = Game.autoSetupFor(Game.state.aiOwner);
+      const red = Game.state.deployPlacements;
+      Game.state.engineState = Game.state.humanOwner === "red"
+        ? E().newGame(red, ai) : E().newGame(ai, red);
+      Game.state.phase = "play";
+      const view = A().redactState(Game.state.engineState, Game.state.aiOwner);
+      Game.state.beliefs = A().createBeliefs(view, Game.state.aiOwner);
+      Game.state.history.push("Game started (" + Game.state.difficulty + ")");
+      if (globalThis.Stratego.UI.persist) globalThis.Stratego.UI.persist();
+    },
+  };
+
+  // ---------- rendering ----------
+  let ROOT = null;
+
+  function el(tag, attrs = {}, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else if (v != null) n.setAttribute(k, v);
+    }
+    for (const kid of kids) if (kid != null) n.append(kid);
+    return n;
+  }
+
+  function tokenEl(rank, owner, opts = {}) {
+    const shown = opts.hidden ? "hidden" : owner;
+    const attrs = {
+      class: "token" + (opts.dragging ? " dragging" : ""),
+      "data-owner": shown,
+      draggable: opts.draggable ? "true" : null,
+    };
+    if (opts.testid !== false) attrs["data-testid"] = "token";
+    const t = el("div", attrs);
+    if (!opts.hidden) {
+      t.append(el("span", { class: "rank", text: String(rank) }));
+      t.append(el("span", { class: "name", text: RANK_NAME[rank] }));
+    }
+    return t;
+  }
+
+  function renderDeploy() {
+    const g = Game.state;
+    const board = el("div", { class: "board", "data-testid": "board" });
+    const deployRows = new Set(E().deployRows(g.humanOwner));
+    for (let r = 0; r < 10; r++) {
+      for (let c = 0; c < 10; c++) {
+        const cell = el("div", {
+          class: "cell" + (E().isLake(r, c) ? " lake" : "") +
+                 (deployRows.has(r) ? " deployable" : ""),
+          "data-testid": `cell-${r}-${c}`,
+        });
+        if (deployRows.has(r)) {
+          cell.addEventListener("dragover", (e) => e.preventDefault());
+          cell.addEventListener("drop", (e) => {
+            e.preventDefault();
+            const rank = e.dataTransfer.getData("text/rank");
+            const fromSq = e.dataTransfer.getData("text/from");
+            if (fromSq) {
+              const [fr, fc] = fromSq.split(",").map(Number);
+              const moving = Game.deployPieceAt(fr, fc);
+              if (moving) {
+                Game.removeDeploy(fr, fc);
+                Game.placeDeploy(r, c, moving.rank);
+              }
+            } else if (rank) {
+              Game.placeDeploy(r, c, rank === "B" || rank === "F" ? rank : Number(rank));
+            }
+            UI.render();
+          });
+        }
+        const dp = Game.deployPieceAt(r, c);
+        if (dp) {
+          const t = tokenEl(dp.rank, g.humanOwner, { draggable: true });
+          t.addEventListener("dragstart", (e) =>
+            e.dataTransfer.setData("text/from", r + "," + c));
+          t.addEventListener("click", () => { Game.removeDeploy(r, c); UI.render(); });
+          cell.append(t);
+        }
+        board.append(cell);
+      }
+    }
+
+    const haveByRank = {};
+    for (const p of g.deployPlacements) haveByRank[p.rank] = (haveByRank[p.rank] || 0) + 1;
+    const tray = el("div", { class: "tray" });
+    for (const rank of RANK_ORDER) {
+      const left = REQUIRED[rank] - (haveByRank[rank] || 0);
+      const slot = el("div", {
+        class: "slot", "data-count": String(left),
+        "data-testid": `tray-piece-${rank}`,
+      });
+      const t = tokenEl(rank, g.humanOwner, { draggable: left > 0, testid: false });
+      t.addEventListener("dragstart", (e) =>
+        e.dataTransfer.setData("text/rank", String(rank)));
+      slot.append(t, el("span", { class: "count", text: `x${left}` }));
+      tray.append(slot);
+    }
+
+    const diff = el("select", {
+      "data-testid": "difficulty-select",
+      onchange: (e) => { Game.state.difficulty = e.target.value; },
+    });
+    for (const d of ["easy", "medium", "hard", "expert"]) {
+      const o = el("option", { value: d, text: d[0].toUpperCase() + d.slice(1) });
+      if (d === g.difficulty) o.selected = true;
+      diff.append(o);
+    }
+
+    const panel = el("div", { class: "panel" },
+      el("strong", { text: "Deploy your army" }),
+      diff,
+      tray,
+      el("button", {
+        "data-testid": "btn-autofill",
+        onclick: () => { Game.autoFillDeployment(); UI.render(); }, text: "Auto-fill",
+      }),
+      el("button", {
+        "data-testid": "btn-clear",
+        onclick: () => { Game.clearDeployment(); UI.render(); }, text: "Clear",
+      }),
+      el("button", {
+        "data-testid": "btn-start",
+        disabled: Game.deploymentComplete() ? null : "true",
+        onclick: () => { Game.startPlay(); UI.render(); }, text: "Start",
+      }),
+    );
+
+    ROOT.replaceChildren(el("div", { class: "app" }, board, panel));
+  }
+
+  const UI = {
+    mount(root) { ROOT = root; UI.render(); },
+    render() {
+      if (!Game.state) Game.newMatch();
+      if (Game.state.phase === "deploy") return renderDeploy();
+      if (Game.state.phase === "play" || Game.state.phase === "over")
+        return globalThis.Stratego.UI._renderPlay();
+    },
+    _renderPlay() {
+      // Minimal board render; full interactive play UI arrives in Task 10.
+      const g = Game.state;
+      const st = g.engineState;
+      const board = el("div", { class: "board", "data-testid": "board" });
+      for (let r = 0; r < 10; r++) {
+        for (let c = 0; c < 10; c++) {
+          const cell = el("div", {
+            class: "cell" + (E().isLake(r, c) ? " lake" : ""),
+            "data-testid": `cell-${r}-${c}`,
+          });
+          const p = st && st.board[r][c];
+          if (p && !p.lake) {
+            const hide = p.owner === g.aiOwner && !p.revealed;
+            cell.append(tokenEl(p.rank, p.owner, { hidden: hide }));
+          }
+          board.append(cell);
+        }
+      }
+      const panel = el("div", { class: "panel" },
+        el("strong", { text: "Play (" + g.difficulty + ")" }),
+        el("div", { class: "log", "data-testid": "log" },
+          ...g.history.map((h) => el("div", { text: h }))),
+      );
+      ROOT.replaceChildren(el("div", { class: "app" }, board, panel));
+    },
+  };
+
+  globalThis.Stratego.UI = UI;
+  globalThis.Stratego.Game = Game;
+
+  // auto-mount when in a browser
+  if (typeof document !== "undefined") {
+    const boot = () => {
+      const root = document.getElementById("app");
+      if (!Game.state) {
+        if (!(globalThis.Stratego.UI.tryRestore && globalThis.Stratego.UI.tryRestore()))
+          Game.newMatch();
+      }
+      UI.mount(root);
+    };
+    if (document.readyState === "loading")
+      document.addEventListener("DOMContentLoaded", boot);
+    else boot();
+  }
+
+  return { UI, Game };
 })();
 </script>
 </body>
