@@ -98,6 +98,28 @@ test("applyMoveTells easy mode ignores slide/combat tells", () => {
   assert.equal(b.pieces[1].probs["B"], 0); // still knows it's not a bomb (it moved)
 });
 
+test("applyMoveTells: a dead opponent rank drops out of every remaining unknown", () => {
+  // Red (opponent) Marshal attacks a blue piece and loses; recount must zero
+  // P(Marshal) for every other still-unknown red piece.
+  const s = makeState([
+    { id: 1, row: 3, col: 3, owner: "red", rank: 10 },
+    { id: 2, row: 3, col: 4, owner: "blue", rank: "B" }, // blue Bomb defends, wins
+    { id: 3, row: 9, col: 0, owner: "red", rank: 6 },   // other unknown red piece
+    { id: 4, row: 9, col: 9, owner: "red", rank: 7 },   // another
+  ]);
+  let b = AI.createBeliefs(s, "blue");
+  assert.ok(b.pieces[3].probs[10] > 0, "starts with some P(Marshal)");
+  const { state: s2, result } = Engine.applyMove(
+    { ...s, turn: "red" }, { pieceId: 1, from: [3, 3], to: [3, 4], isAttack: true });
+  b = AI.applyMoveTells(b, s2, s, result, "medium");
+  assert.equal(result.combat.outcome, "defender");
+  assert.equal(b._deadByRank[10], 1);
+  assert.equal(b.pieces[3].probs[10], 0);
+  assert.equal(b.pieces[4].probs[10], 0);
+  assert.ok(Math.abs(sumProbs(b.pieces[3].probs) - 1) < 1e-9);
+  assert.ok(Math.abs(sumProbs(b.pieces[4].probs) - 1) < 1e-9);
+});
+
 test("applyMoveTells: surviving a combat collapses to the true revealed rank", () => {
   const s = makeState([
     { id: 1, row: 3, col: 3, owner: "red", rank: 9 },

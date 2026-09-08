@@ -466,7 +466,9 @@ globalThis.Stratego.AI = (function () {
         pieces[p.id] = { probs, known: null };
       }
     }
-    return { viewer, opponent, pieces };
+    const _deadByRank = {};
+    for (const t of RANK_TYPES) _deadByRank[t] = 0;
+    return { viewer, opponent, pieces, _deadByRank };
   }
 
   function collapse(entry, rank) {
@@ -483,6 +485,7 @@ globalThis.Stratego.AI = (function () {
       pieces: Object.fromEntries(Object.entries(beliefs.pieces).map(
         ([k, v]) => [k, { probs: { ...v.probs }, known: v.known }]
       )),
+      _deadByRank: { ...(beliefs._deadByRank || {}) },
     };
   }
 
@@ -498,6 +501,34 @@ globalThis.Stratego.AI = (function () {
         normalize(probs);
         b.pieces[p.id] = { probs, known: null };
         if (p.revealed) collapse(b.pieces[p.id], p.rank);
+      }
+    }
+
+    // Record opponent pieces that died in THIS move's combat (combat always
+    // reveals both true ranks), then recompute the remaining-rank vector so
+    // every still-unknown entry re-accounts for pieces that have died or been
+    // revealed. Without this, an unknown piece keeps its opening P(Marshal)
+    // forever even after the enemy Marshal is captured. (Spec §3.3 — this is
+    // the definition of "remaining counts", used at every level.)
+    if (result && result.combat && Array.isArray(result.captured)) {
+      for (const cmb of [result.combat.attacker, result.combat.defender]) {
+        if (cmb && cmb.owner === b.opponent && result.captured.includes(cmb.id))
+          b._deadByRank[cmb.rank] = (b._deadByRank[cmb.rank] || 0) + 1;
+      }
+    }
+    {
+      const revealedAliveByType = {};
+      for (const p of alivePieces(state, b.opponent))
+        if (p.revealed) revealedAliveByType[p.rank] = (revealedAliveByType[p.rank] || 0) + 1;
+      const remaining = {};
+      for (const t of RANK_TYPES)
+        remaining[t] = Math.max(0, INITIAL_COUNTS[t]
+          - (b._deadByRank[t] || 0) - (revealedAliveByType[t] || 0));
+      for (const id of Object.keys(b.pieces)) {
+        const e = b.pieces[id];
+        if (e.known != null) continue;
+        for (const t of RANK_TYPES) e.probs[t] = e.probs[t] > 0 ? remaining[t] : 0;
+        normalize(e.probs);
       }
     }
 
@@ -1135,6 +1166,7 @@ globalThis.Stratego = globalThis.Stratego || {};
       viewer: b.viewer, opponent: b.opponent,
       pieces: Object.fromEntries(Object.entries(b.pieces).map(
         ([k, v]) => [k, { probs: { ...v.probs }, known: v.known }])),
+      _deadByRank: { ...(b._deadByRank || {}) },
     };
   }
 
