@@ -683,10 +683,12 @@ globalThis.Stratego.AI = (function () {
       const { state: ns } = Eng.applyMove(state, move);
       return evaluate(ns, beliefs, forOwner);
     }
+    // Average only over the 4 most likely ranks (same as `search`). Iterating
+    // every rank with p >= 0.02 lets the 2.5%-probability Flag branch — which
+    // scores +1e6 for a "capture" — dominate the mean and turn this into a
+    // flag lottery that throws the best piece at any adjacent unknown.
     let total = 0, wsum = 0;
-    for (const t of RANK_TYPES) {
-      const p = entry.probs[t] || 0;
-      if (p < 0.02) continue;
+    for (const [t, p] of topRanks(entry, 4)) {
       const trial = Eng.cloneState(state);
       trial.board[tr][tc].rank = t;
       trial.board[tr][tc].revealed = true;
@@ -850,7 +852,7 @@ globalThis.Stratego.AI = (function () {
   return {
     RANK_TYPES, redactState, createBeliefs, applyMoveTells, applyPositionalPrior,
     PIECE_VALUE, expectedValue, evaluate, expectedMoveScore, chooseMove,
-    DIFFICULTY, NODE_CAP, search,
+    DIFFICULTY, NODE_CAP, search, topRanks,
   };
 })();
 </script>

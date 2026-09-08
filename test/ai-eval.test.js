@@ -74,6 +74,36 @@ test("chooseMove takes a free winning flag capture at argmax (hard fallback)", (
   assert.deepEqual([m.to[0], m.to[1]], [8, 9]);
 });
 
+test("expectedMoveScore does not run a flag lottery on adjacent unknowns", () => {
+  // Blue Marshal (10) next to an unmoved unknown red piece that is really a Bomb.
+  // Averaging over every rank with p >= 0.02 would fold in the 2.5%-probability
+  // Flag branch (+1e6 for a "capture") and make the suicidal attack look best.
+  // Top-4 belief ranks excludes that tail, so the AI advances/retreats instead.
+  const s = makeState([
+    { id: 1, row: 5, col: 5, owner: "blue", rank: 10 },
+    { id: 2, row: 4, col: 5, owner: "red", rank: "B" },
+    { id: 3, row: 0, col: 0, owner: "blue", rank: "F" },
+    { id: 4, row: 1, col: 0, owner: "blue", rank: "B" },
+    { id: 5, row: 9, col: 9, owner: "red", rank: "F" },
+    { id: 6, row: 8, col: 9, owner: "red", rank: "B" },
+    { id: 7, row: 0, col: 9, owner: "red", rank: 2 },
+  ], "blue");
+  const b = AI.createBeliefs(s, "blue");
+  const m = AI.chooseMove(s, b, { level: "easy", rng: RNG.create(1) });
+  assert.notDeepEqual([m.to[0], m.to[1]], [4, 5],
+    "should not throw the Marshal at the unknown Bomb");
+});
+
+test("topRanks is exported and returns at most k ranks", () => {
+  const s = makeState([
+    { id: 1, row: 9, col: 0, owner: "red", rank: 5 },
+    { id: 2, row: 0, col: 0, owner: "blue", rank: 9 },
+  ]);
+  const b = AI.createBeliefs(s, "blue");
+  const tr = AI.topRanks(b.pieces[1], 4);
+  assert.ok(Array.isArray(tr) && tr.length <= 4 && tr.length > 0);
+});
+
 test("chooseMove returns null when no legal moves", () => {
   const s = makeState([
     { id: 1, row: 0, col: 0, owner: "blue", rank: "F" },
