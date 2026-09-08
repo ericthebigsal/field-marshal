@@ -89,6 +89,19 @@ select {
   background: var(--paper); color: var(--ink); padding: 24px;
   border-radius: 10px; text-align: center; display: grid; gap: 12px;
 }
+.token.reveal { animation: pulse .9s ease-in-out; z-index: 5; }
+@keyframes pulse {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.15); box-shadow: 0 0 0 4px #ffd54a; }
+  100% { transform: scale(1); }
+}
+.cell[data-combat="1"] { outline: 3px solid #ffd54a; outline-offset: -3px; }
+.turn { font-weight: 700; }
+.captured { display: flex; flex-wrap: wrap; gap: 3px; font-size: 12px; }
+.captured span {
+  background: rgba(255,255,255,.1); border-radius: 4px;
+  padding: 1px 5px; min-width: 16px; text-align: center;
+}
 </style>
 </head>
 <body>
@@ -1044,31 +1057,250 @@ globalThis.Stratego = globalThis.Stratego || {};
         return globalThis.Stratego.UI._renderPlay();
     },
     _renderPlay() {
-      // Minimal board render; full interactive play UI arrives in Task 10.
-      const g = Game.state;
-      const st = g.engineState;
-      const board = el("div", { class: "board", "data-testid": "board" });
-      for (let r = 0; r < 10; r++) {
-        for (let c = 0; c < 10; c++) {
-          const cell = el("div", {
-            class: "cell" + (E().isLake(r, c) ? " lake" : ""),
-            "data-testid": `cell-${r}-${c}`,
-          });
-          const p = st && st.board[r][c];
-          if (p && !p.lake) {
-            const hide = p.owner === g.aiOwner && !p.revealed;
-            cell.append(tokenEl(p.rank, p.owner, { hidden: hide }));
-          }
-          board.append(cell);
-        }
-      }
-      const panel = el("div", { class: "panel" },
-        el("strong", { text: "Play (" + g.difficulty + ")" }),
-        el("div", { class: "log", "data-testid": "log" },
-          ...g.history.map((h) => el("div", { text: h }))),
-      );
-      ROOT.replaceChildren(el("div", { class: "app" }, board, panel));
+      // full implementation assigned below, after the core
     },
+  };
+
+  // ---------- play phase: turn flow ----------
+  const AI_THINK_MS = 450;
+  const COMBAT_MS = 900;
+  const COLS_LABEL = "abcdefghij";
+
+  function sqName(r, c) {
+    // row 9 (red back row) shown as rank 1
+    return COLS_LABEL[c] + String(10 - r);
+  }
+
+  function structuredCloneBeliefs(b) {
+    return {
+      viewer: b.viewer, opponent: b.opponent,
+      pieces: Object.fromEntries(Object.entries(b.pieces).map(
+        ([k, v]) => [k, { probs: { ...v.probs }, known: v.known }])),
+    };
+  }
+
+  function describeMove(result, prevState) {
+    const m = result.move;
+    const from = prevState.board[m.from[0]][m.from[1]];
+    const side = from.owner === "red" ? "Red" : "Blue";
+    const nm = from.owner === Game.state.humanOwner
+      ? RANK_NAME[from.rank]
+      : (from.revealed ? RANK_NAME[from.rank] : "?");
+    let line = `${side} ${nm} ${sqName(m.from[0], m.from[1])}→${sqName(m.to[0], m.to[1])}`;
+    if (result.combat) {
+      const { attacker, defender, outcome } = result.combat;
+      const dn = RANK_NAME[defender.rank];
+      const an = RANK_NAME[attacker.rank];
+      const verdict = outcome === "attacker" ? `${an} wins`
+        : outcome === "defender" ? `${dn} wins` : "both lost";
+      line += `  ⚔ vs ${dn} — ${verdict}`;
+    }
+    return line;
+  }
+
+  Game.selected = null;
+  Game.legalTargets = [];
+  Game._lastCombat = null;
+
+  Game.selectPiece = function (r, c) {
+    const g = Game.state;
+    if (g.phase !== "play" || g.engineState.turn !== g.humanOwner) return;
+    const p = E().pieceAt(g.engineState, r, c);
+    if (!p || p.owner !== g.humanOwner) {
+      Game.selected = null; Game.legalTargets = [];
+      return;
+    }
+    if (Game.selected && Game.selected.row === r && Game.selected.col === c) {
+      Game.selected = null; Game.legalTargets = [];
+      return;
+    }
+    Game.selected = { row: r, col: c };
+    Game.legalTargets = E().movesForPiece(g.engineState, r, c);
+  };
+
+  Game.humanMove = function (tr, tc) {
+    const g = Game.state;
+    if (!Game.selected) return;
+    if (g.phase !== "play" || g.engineState.turn !== g.humanOwner) return;
+    const move = Game.legalTargets.find((m) => m.to[0] === tr && m.to[1] === tc);
+    if (!move) {
+      Game.selected = null; Game.legalTargets = [];
+      UI.render();
+      return;
+    }
+    g.undoStack.push({
+      engineState: E().cloneState(g.engineState),
+      beliefs: structuredCloneBeliefs(g.beliefs),
+      rngState: g.rng.state(),
+      history: g.history.slice(),
+    });
+    if (g.undoStack.length > 10) g.undoStack.shift();
+    const prev = g.engineState;
+    const { state, result } = E().applyMove(g.engineState, move);
+    g.engineState = state;
+    g.history.push(describeMove(result, prev));
+    g.beliefs = A().applyMoveTells(g.beliefs, g.engineState, prev, result, g.difficulty);
+    Game.selected = null; Game.legalTargets = [];
+    Game._lastCombat = result.combat ? result.combat.square : null;
+    if (g.engineState.winner) {
+      g.phase = "over";
+      UI.persist && UI.persist();
+      UI.render();
+      return;
+    }
+    UI.persist && UI.persist();
+    UI.render();
+    setTimeout(Game.aiTurn, AI_THINK_MS);
+  };
+
+  Game.aiTurn = function () {
+    const g = Game.state;
+    if (g.phase !== "play" || g.engineState.turn !== g.aiOwner) return;
+    const view = A().redactState(g.engineState, g.aiOwner);
+    const move = A().chooseMove(view, g.beliefs, { level: g.difficulty, rng: g.rng });
+    if (!move) {
+      // human already won via no-moves; applyMove would have set this, but be safe
+      g.engineState.winner = g.engineState.winner || g.humanOwner;
+      g.engineState.winReason = g.engineState.winReason || "no-moves";
+      g.phase = "over";
+      UI.persist && UI.persist();
+      UI.render();
+      return;
+    }
+    const prev = g.engineState;
+    const { state, result } = E().applyMove(g.engineState, move);
+    g.engineState = state;
+    g.history.push(describeMove(result, prev));
+    g.beliefs = A().applyMoveTells(g.beliefs, g.engineState, prev, result, g.difficulty);
+    Game._lastCombat = result.combat ? result.combat.square : null;
+    if (g.engineState.winner) g.phase = "over";
+    UI.persist && UI.persist();
+    UI.render();
+  };
+
+  Game.undo = function () {
+    const g = Game.state;
+    if (!g.undoStack.length || g.phase === "over") return;
+    const snap = g.undoStack.pop();
+    g.engineState = snap.engineState;
+    g.beliefs = snap.beliefs;
+    g.rng = R().fromState(snap.rngState);
+    g.history = snap.history;
+    Game.selected = null; Game.legalTargets = [];
+    Game._lastCombat = null;
+    g.phase = "play";
+    UI.persist && UI.persist();
+    UI.render();
+  };
+
+  Game.resign = function () {
+    const g = Game.state;
+    if (g.phase !== "play") return;
+    g.engineState.winner = g.aiOwner;
+    g.engineState.winReason = "resign";
+    g.phase = "over";
+    UI.persist && UI.persist();
+    UI.render();
+  };
+
+  function capturedByRank(engineState, owner) {
+    const alive = {};
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+      const cell = engineState.board[r][c];
+      if (cell && !cell.lake && cell.owner === owner)
+        alive[cell.rank] = (alive[cell.rank] || 0) + 1;
+    }
+    const lost = [];
+    for (const rank of RANK_ORDER) {
+      const gone = REQUIRED[rank] - (alive[rank] || 0);
+      for (let i = 0; i < gone; i++) lost.push(rank);
+    }
+    return lost;
+  }
+
+  UI._renderPlay = function () {
+    const g = Game.state;
+    const es = g.engineState;
+    const board = el("div", { class: "board", "data-testid": "board" });
+    const targetSet = new Set(Game.legalTargets.map((m) => m.to[0] + "," + m.to[1]));
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+      const lake = E().isLake(r, c);
+      const isSel = Game.selected && Game.selected.row === r && Game.selected.col === c;
+      const cell = el("div", {
+        class: "cell" + (lake ? " lake" : "") +
+               (targetSet.has(r + "," + c) ? " legal" : "") +
+               (isSel ? " selected" : ""),
+        "data-testid": `cell-${r}-${c}`,
+        "data-combat": Game._lastCombat &&
+          Game._lastCombat[0] === r && Game._lastCombat[1] === c ? "1" : null,
+        onclick: () => {
+          if (g.phase !== "play") return;
+          if (targetSet.has(r + "," + c)) Game.humanMove(r, c);
+          else { Game.selectPiece(r, c); UI.render(); }
+        },
+      });
+      const p = E().pieceAt(es, r, c);
+      if (p) {
+        const hidden = p.owner === g.aiOwner && !p.revealed && g.phase === "play";
+        cell.append(tokenEl(p.rank, p.owner, { hidden }));
+      }
+      board.append(cell);
+    }
+
+    const turnText = es.winner
+      ? "Game over"
+      : es.turn === g.humanOwner ? "Your turn" : "Computer thinking…";
+    const panel = el("div", { class: "panel" },
+      el("div", { class: "turn", "data-testid": "turn-indicator", text: turnText }),
+      el("button", {
+        "data-testid": "btn-undo",
+        disabled: (!g.undoStack.length || g.phase === "over") ? "true" : null,
+        onclick: Game.undo, text: "Undo",
+      }),
+      el("button", {
+        "data-testid": "btn-resign",
+        disabled: g.phase === "over" ? "true" : null,
+        onclick: Game.resign, text: "Resign",
+      }),
+      el("button", {
+        "data-testid": "btn-newgame",
+        onclick: () => { Game.newMatch(g.difficulty); UI.render(); }, text: "New Game",
+      }),
+      el("div", { text: "Your losses" }),
+      el("div", { class: "captured", "data-testid": `captured-${g.humanOwner}` },
+        ...capturedByRank(es, g.humanOwner).map((rk) =>
+          el("span", { text: RANK_NAME[rk] + " (" + rk + ")" }))),
+      el("div", { text: "Computer losses" }),
+      el("div", { class: "captured", "data-testid": `captured-${g.aiOwner}` },
+        ...capturedByRank(es, g.aiOwner).map((rk) =>
+          el("span", { text: RANK_NAME[rk] + " (" + rk + ")" }))),
+      el("div", { class: "log", "data-testid": "move-log" },
+        ...g.history.slice(-40).map((line) => el("div", { text: line }))),
+    );
+
+    const wrap = el("div", { class: "app" }, board, panel);
+    if (es.winner && g.phase === "over") {
+      const who = es.winner === g.humanOwner ? "You win!" : "Computer wins";
+      wrap.append(el("div", { class: "banner" },
+        el("div", { class: "card" },
+          el("h2", { text: who }),
+          el("div", { text: "Reason: " + (es.winReason || "") }),
+          el("button", {
+            onclick: () => { Game.newMatch(g.difficulty); UI.render(); },
+            text: "Play again",
+          }))));
+    }
+    ROOT.replaceChildren(wrap);
+
+    // clear the combat highlight after a beat
+    if (Game._lastCombat) {
+      const sq = Game._lastCombat;
+      Game._lastCombat = null;
+      setTimeout(() => {
+        const cellEl = ROOT.querySelector(`[data-testid="cell-${sq[0]}-${sq[1]}"]`);
+        if (cellEl) cellEl.removeAttribute("data-combat");
+      }, COMBAT_MS);
+    }
   };
 
   globalThis.Stratego.UI = UI;
