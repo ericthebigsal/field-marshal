@@ -7,12 +7,15 @@ step, no dependencies. The whole game ships as one self-contained
 
 ## Status
 
-Design complete, implementation not started.
+Playable. Four difficulty tiers (Easy, Medium, Hard, Expert), full deploy and
+play phases, and save/resume of an in-progress game via `localStorage` (with a
+resume-or-new-game prompt on reload). Test suites: 59 `node:test` unit tests for
+the pure modules and 10 Playwright end-to-end tests for the UI.
 
 - Design spec: [`docs/superpowers/specs/2026-09-07-stratego-single-player-design.md`](docs/superpowers/specs/2026-09-07-stratego-single-player-design.md)
 - Source rules reference: [`Classical Risk Game Rules - Google Gemini.pdf`](Classical%20Risk%20Game%20Rules%20-%20Google%20Gemini.pdf) (classical Stratego ruleset)
 
-## Planned features
+## Features
 
 - Full classical Stratego rules on the 10x10 board with center lakes, 40 pieces
   per side, ranks 1-10 plus Bombs and Flag.
@@ -44,6 +47,14 @@ Single HTML file, JavaScript split into narrow modules:
 blocks from `stratego.html` and runs assertions against them, so delivery stays
 a single file while development uses real TDD.
 
+```
+npm test              # 59 node:test unit tests (Engine, RNG, AI)
+npx playwright test   # 10 end-to-end UI tests (deploy, play, save/resume)
+```
+
+The end-to-end tests drive the real `stratego.html` over `file://` and require
+Google Chrome to be installed (the Playwright config uses `channel: "chrome"`).
+
 ## Running
 
-Once built: open `stratego.html` in any modern browser.
+Open `stratego.html` in any modern browser. No server or build step.

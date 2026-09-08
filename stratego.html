@@ -821,6 +821,7 @@ globalThis.Stratego = globalThis.Stratego || {};
   const Game = {
     state: null,
     newMatch(difficulty = "medium", seed) {
+      if (Game._aiTimer) { clearTimeout(Game._aiTimer); Game._aiTimer = null; }
       const s = (seed ?? Date.now()) >>> 0;
       Game.state = {
         phase: "deploy", engineState: null, beliefs: null,
@@ -828,6 +829,8 @@ globalThis.Stratego = globalThis.Stratego || {};
         aiOwner: "blue", humanOwner: "red",
         deployPlacements: [], undoStack: [], history: [],
       };
+      if (globalThis.Stratego.UI && globalThis.Stratego.UI.clearSave)
+        globalThis.Stratego.UI.clearSave();
     },
     _weightedArmy(owner, rng) {
       // returns {row,col,rank}[] covering all 40 squares of owner's deploy rows
@@ -1101,6 +1104,7 @@ globalThis.Stratego = globalThis.Stratego || {};
   Game.selected = null;
   Game.legalTargets = [];
   Game._lastCombat = null;
+  Game._aiTimer = null;
 
   Game.selectPiece = function (r, c) {
     const g = Game.state;
@@ -1150,10 +1154,11 @@ globalThis.Stratego = globalThis.Stratego || {};
     }
     UI.persist && UI.persist();
     UI.render();
-    setTimeout(Game.aiTurn, AI_THINK_MS);
+    Game._aiTimer = setTimeout(Game.aiTurn, AI_THINK_MS);
   };
 
   Game.aiTurn = function () {
+    Game._aiTimer = null;
     const g = Game.state;
     if (g.phase !== "play" || g.engineState.turn !== g.aiOwner) return;
     const view = A().redactState(g.engineState, g.aiOwner);
@@ -1179,6 +1184,7 @@ globalThis.Stratego = globalThis.Stratego || {};
   };
 
   Game.undo = function () {
+    if (Game._aiTimer) { clearTimeout(Game._aiTimer); Game._aiTimer = null; }
     const g = Game.state;
     if (!g.undoStack.length || g.phase === "over") return;
     const snap = g.undoStack.pop();
@@ -1194,6 +1200,7 @@ globalThis.Stratego = globalThis.Stratego || {};
   };
 
   Game.resign = function () {
+    if (Game._aiTimer) { clearTimeout(Game._aiTimer); Game._aiTimer = null; }
     const g = Game.state;
     if (g.phase !== "play") return;
     g.engineState.winner = g.aiOwner;
@@ -1275,7 +1282,7 @@ globalThis.Stratego = globalThis.Stratego || {};
         ...capturedByRank(es, g.aiOwner).map((rk) =>
           el("span", { text: RANK_NAME[rk] + " (" + rk + ")" }))),
       el("div", { class: "log", "data-testid": "move-log" },
-        ...g.history.slice(-40).map((line) => el("div", { text: line }))),
+        ...g.history.slice(-40).flatMap((line) => [el("div", { text: line }), "\n"])),
     );
 
     const wrap = el("div", { class: "app" }, board, panel);
@@ -1303,22 +1310,93 @@ globalThis.Stratego = globalThis.Stratego || {};
     }
   };
 
+  // ---------- save / resume persistence ----------
+  UI.SAVE_KEY = "stratego.save.v1";
+
+  function serializeSnapshot(snap) {
+    return {
+      engineState: snap.engineState, beliefs: snap.beliefs,
+      rngState: snap.rngState, history: snap.history,
+    };
+  }
+  function hydrateSnapshot(s) { return { ...s }; }
+
+  UI.persist = function () {
+    const g = Game.state;
+    if (!g) return;
+    try {
+      const payload = {
+        version: 1, phase: g.phase, difficulty: g.difficulty, seed: g.seed,
+        rngState: g.rng.state(), humanOwner: g.humanOwner, aiOwner: g.aiOwner,
+        deployPlacements: g.deployPlacements, engineState: g.engineState,
+        beliefs: g.beliefs, history: g.history,
+        undoStack: (g.undoStack || []).slice(-5).map(serializeSnapshot),
+      };
+      localStorage.setItem(UI.SAVE_KEY, JSON.stringify(payload));
+    } catch (e) { /* ignore quota / disabled storage */ }
+  };
+
+  UI.clearSave = function () {
+    try { localStorage.removeItem(UI.SAVE_KEY); } catch (e) {}
+  };
+
+  UI.tryRestore = function () {
+    let raw;
+    try { raw = localStorage.getItem(UI.SAVE_KEY); } catch (e) { return false; }
+    if (!raw) return false;
+    try {
+      const d = JSON.parse(raw);
+      if (d.version !== 1 || !d.phase || !d.engineState) throw new Error("bad shape");
+      Game.state = {
+        phase: d.phase, engineState: d.engineState, beliefs: d.beliefs,
+        rng: R().fromState((d.rngState || 0) >>> 0), seed: d.seed, difficulty: d.difficulty,
+        aiOwner: d.aiOwner || "blue", humanOwner: d.humanOwner || "red",
+        deployPlacements: d.deployPlacements || [],
+        undoStack: (d.undoStack || []).map(hydrateSnapshot),
+        history: d.history || [],
+      };
+      Game.selected = null; Game.legalTargets = [];
+      Game._lastCombat = null;
+      return true;
+    } catch (e) {
+      UI.clearSave();
+      return false;
+    }
+  };
+
+  UI.boot = function () {
+    ROOT = document.getElementById("app");
+    const restored = UI.tryRestore();
+    if (restored && Game.state.phase === "play") {
+      UI.renderResumePrompt();
+    } else {
+      if (!restored) Game.newMatch();
+      UI.render();
+    }
+  };
+
+  UI.renderResumePrompt = function () {
+    const wrap = el("div", { class: "banner" },
+      el("div", { class: "card" },
+        el("h2", { text: "Game in progress" }),
+        el("button", { onclick: () => { UI.render(); }, text: "Resume game" }),
+        el("button", {
+          onclick: () => {
+            const d = Game.state.difficulty;
+            Game.newMatch(d); UI.clearSave(); UI.render();
+          }, text: "New game",
+        })));
+    ROOT.replaceChildren(wrap);
+  };
+
   globalThis.Stratego.UI = UI;
   globalThis.Stratego.Game = Game;
 
   // auto-mount when in a browser
   if (typeof document !== "undefined") {
-    const boot = () => {
-      const root = document.getElementById("app");
-      if (!Game.state) {
-        if (!(globalThis.Stratego.UI.tryRestore && globalThis.Stratego.UI.tryRestore()))
-          Game.newMatch();
-      }
-      UI.mount(root);
-    };
     if (document.readyState === "loading")
-      document.addEventListener("DOMContentLoaded", boot);
-    else boot();
+      document.addEventListener("DOMContentLoaded", UI.boot);
+    else UI.boot();
   }
 
   return { UI, Game };
