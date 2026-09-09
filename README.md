@@ -9,8 +9,8 @@ step, no dependencies. The whole game ships as one self-contained
 
 Playable. Four difficulty tiers (Easy, Medium, Hard, Expert), full deploy and
 play phases, and save/resume of an in-progress game via `localStorage` (with a
-resume-or-new-game prompt on reload). Test suites: 84 `node:test` unit tests for
-the pure modules and 15 Playwright end-to-end tests for the UI.
+resume-or-new-game prompt on reload). Test suites: 87 `node:test` unit tests for
+the pure modules and 16 Playwright end-to-end tests for the UI.
 
 - Design spec: [`docs/superpowers/specs/2026-09-07-stratego-single-player-design.md`](docs/superpowers/specs/2026-09-07-stratego-single-player-design.md)
 - Source rules reference: [`Classical Risk Game Rules - Google Gemini.pdf`](Classical%20Risk%20Game%20Rules%20-%20Google%20Gemini.pdf) (classical Stratego ruleset)
@@ -24,7 +24,8 @@ the pure modules and 15 Playwright end-to-end tests for the UI.
   Conservative). The computer deploys with a randomly chosen formation too.
 - Classic tabletop visual style (wood board, felt lakes, pictographic rank
   tokens — a drawn insignia per rank, bomb and flag included).
-- Hover any piece for a tooltip describing that rank's capabilities.
+- Hover any piece for a tooltip describing that rank's capabilities and how
+  many of that rank you and the opponent each still have in play.
 - Piece text is tinted by whether its identity is still secret from the
   opponent (green) or has been revealed in combat (amber).
 - Every encounter opens a modal showing both pieces, the outcome, and a
@@ -58,8 +59,8 @@ blocks from `stratego.html` and runs assertions against them, so delivery stays
 a single file while development uses real TDD.
 
 ```
-npm test              # 84 node:test unit tests (Engine, RNG, AI, UI helpers)
-npx playwright test   # 15 end-to-end UI tests (deploy, play, save/resume, encounters)
+npm test              # 87 node:test unit tests (Engine, RNG, AI, UI helpers)
+npx playwright test   # 16 end-to-end UI tests (deploy, play, save/resume, encounters)
 ```
 
 The end-to-end tests drive the real `stratego.html` over `file://` and require

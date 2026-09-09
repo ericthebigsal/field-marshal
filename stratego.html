@@ -87,6 +87,12 @@ body {
   pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,.5);
 }
 .tooltip strong { display: block; margin-bottom: 3px; }
+.tooltip .tip-stats {
+  margin-top: 6px; padding-top: 6px; display: grid; gap: 2px;
+  border-top: 1px solid rgba(255,255,255,.15);
+}
+.tooltip .tip-stat { display: flex; justify-content: space-between; gap: 16px; }
+.tooltip .tip-stat span:last-child { font-variant-numeric: tabular-nums; opacity: .9; }
 .banner.combat { z-index: 40; }
 .combat .card { max-width: 430px; gap: 14px; }
 .combat h3 { margin: 0; font-size: 17px; }
@@ -1101,6 +1107,27 @@ globalThis.Stratego = globalThis.Stratego || {};
   };
   function pieceRule(rank) { return RANK_INFO[rank] || ""; }
 
+  function countAlive(engineState, owner, rank) {
+    let n = 0;
+    for (let r = 0; r < 10; r++)
+      for (let c = 0; c < 10; c++) {
+        const cell = engineState.board[r][c];
+        if (cell && !cell.lake && cell.owner === owner && cell.rank === rank) n++;
+      }
+    return n;
+  }
+
+  // How many of `rank` each side still has in play. A piece only ever leaves
+  // the board by losing (or trading in) combat, which reveals its rank, so
+  // both figures are derivable from what the player has already seen.
+  function pieceCounts(engineState, rank, humanOwner) {
+    const aiOwner = humanOwner === "red" ? "blue" : "red";
+    return {
+      mine: { alive: countAlive(engineState, humanOwner, rank), total: REQUIRED[rank] },
+      opp: { alive: countAlive(engineState, aiOwner, rank), total: REQUIRED[rank] },
+    };
+  }
+
   function sideName(owner) { return owner === "red" ? "Red" : "Blue"; }
 
   // Turns a resolved combat ({attacker,defender,outcome}) into plain-language
@@ -1259,9 +1286,17 @@ globalThis.Stratego = globalThis.Stratego || {};
     }
     return TIP;
   }
-  function showTip(anchor, title, body) {
+  function showTip(anchor, title, body, stats) {
     const t = tipNode();
-    t.replaceChildren(el("strong", { text: title }), el("span", { text: body }));
+    const kids = [el("strong", { text: title }), el("span", { text: body })];
+    if (stats && stats.length) {
+      const box = el("div", { class: "tip-stats" });
+      for (const s of stats)
+        box.append(el("div", { class: "tip-stat" },
+          el("span", { text: s.label }), el("span", { text: s.value })));
+      kids.push(box);
+    }
+    t.replaceChildren(...kids);
     t.hidden = false;
     const r = anchor.getBoundingClientRect();
     t.style.left = Math.round(r.left + r.width / 2) + "px";
@@ -1292,7 +1327,13 @@ globalThis.Stratego = globalThis.Stratego || {};
     const tipBody = opts.hidden
       ? "Its rank stays hidden until it moves or fights."
       : pieceRule(rank);
-    const enter = () => showTip(t, tipTitle, tipBody);
+    const tipStats = (!opts.hidden && opts.counts) ? [
+      { label: "My remaining",
+        value: `${opts.counts.mine.alive} of ${opts.counts.mine.total}` },
+      { label: "Opponent remaining",
+        value: `${opts.counts.opp.alive} of ${opts.counts.opp.total}` },
+    ] : null;
+    const enter = () => showTip(t, tipTitle, tipBody, tipStats);
     t.addEventListener("mouseenter", enter);
     t.addEventListener("mouseleave", hideTip);
     t.addEventListener("focus", enter);
@@ -1645,7 +1686,8 @@ globalThis.Stratego = globalThis.Stratego || {};
       if (p) {
         const hidden = p.owner === g.aiOwner && !p.revealed && g.phase === "play";
         const state = hidden ? null : (p.revealed ? "known" : "secret");
-        cell.append(tokenEl(p.rank, p.owner, { hidden, state }));
+        const counts = hidden ? null : pieceCounts(es, p.rank, g.humanOwner);
+        cell.append(tokenEl(p.rank, p.owner, { hidden, state, counts }));
       }
       board.append(cell);
     }
@@ -1811,6 +1853,7 @@ globalThis.Stratego = globalThis.Stratego || {};
   UI.pieceRule = pieceRule;
   UI.formationFor = formationFor;
   UI.SETUP_NAMES = SETUP_NAMES;
+  UI.pieceCounts = pieceCounts;
 
   globalThis.Stratego.UI = UI;
   globalThis.Stratego.Game = Game;

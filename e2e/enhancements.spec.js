@@ -42,6 +42,9 @@ test("hovering a piece shows its rules", async ({ page }) => {
   const tip = page.getByTestId("piece-tooltip");
   await expect(tip).toBeVisible();
   await expect(tip).toContainText(/moves|square|line|bomb|flag/i);
+  await expect(tip).toContainText(/my remaining/i);
+  await expect(tip).toContainText(/opponent remaining/i);
+  await expect(tip).toContainText(/\d+ of \d+/);
 });
 
 test("a piece's text color marks whether it has been revealed", async ({ page }) => {
