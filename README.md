@@ -5,6 +5,8 @@ Stratego ruleset. You face a deterministic, rule-based computer opponent —
 no server, no build step, no dependencies. The whole game ships as one
 self-contained `field-marshal.html` file that runs offline.
 
+**Play:** https://ericthebigsal.github.io/field-marshal/
+
 > **Disclaimer.** *Field Marshal* is an unofficial, non-commercial fan
 > project. It is not affiliated with, sponsored by, or endorsed by the
 > owners of the Stratego® trademark. It implements the well-known classical
