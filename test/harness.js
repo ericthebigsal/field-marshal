@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const HTML_PATH = join(here, "..", "stratego.html");
+const HTML_PATH = join(here, "..", "field-marshal.html");
 
 function extractScript(html, id) {
   const re = new RegExp(

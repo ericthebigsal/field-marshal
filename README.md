@@ -1,9 +1,14 @@
-# Stratego (Single Player)
+# Field Marshal
 
-A browser-based, single-player implementation of classical Stratego. You play
-against a deterministic, rule-based computer opponent — no server, no build
-step, no dependencies. The whole game ships as one self-contained
-`stratego.html` file that runs offline.
+A browser-based, single-player strategy game played by the classical
+Stratego ruleset. You face a deterministic, rule-based computer opponent —
+no server, no build step, no dependencies. The whole game ships as one
+self-contained `field-marshal.html` file that runs offline.
+
+> **Disclaimer.** *Field Marshal* is an unofficial, non-commercial fan
+> project. It is not affiliated with, sponsored by, or endorsed by the
+> owners of the Stratego® trademark. It implements the well-known classical
+> ruleset; all code and artwork in this repository are original.
 
 ## Status
 
@@ -13,11 +18,10 @@ resume-or-new-game prompt on reload). Test suites: 87 `node:test` unit tests for
 the pure modules and 16 Playwright end-to-end tests for the UI.
 
 - Design spec: [`docs/superpowers/specs/2026-09-07-stratego-single-player-design.md`](docs/superpowers/specs/2026-09-07-stratego-single-player-design.md)
-- Source rules reference: [`Classical Risk Game Rules - Google Gemini.pdf`](Classical%20Risk%20Game%20Rules%20-%20Google%20Gemini.pdf) (classical Stratego ruleset)
 
 ## Features
 
-- Full classical Stratego rules on the 10x10 board with center lakes, 40 pieces
+- Full classical ruleset on the 10x10 board with center lakes, 40 pieces
   per side, ranks 1-10 plus Bombs and Flag.
 - Manual drag-and-drop army deployment, with random Auto-fill and four
   hand-authored starting formations (Aggressive, Defensive, Tricky,
@@ -52,20 +56,24 @@ Single HTML file, JavaScript split into narrow modules:
 | `AI` | Belief model + expectimax search. Deterministic given the seed. |
 | `UI` / `Game` | Rendering, input, animation, persistence, turn flow. |
 
+The internal JS namespace is still `globalThis.Stratego.*` — a historical
+implementation detail, not user-facing.
+
 ## Testing
 
 `Engine`, `RNG`, and `AI` are pure. A Node test runner extracts those script
-blocks from `stratego.html` and runs assertions against them, so delivery stays
-a single file while development uses real TDD.
+blocks from `field-marshal.html` and runs assertions against them, so delivery
+stays a single file while development uses real TDD.
 
 ```
 npm test              # 87 node:test unit tests (Engine, RNG, AI, UI helpers)
 npx playwright test   # 16 end-to-end UI tests (deploy, play, save/resume, encounters)
 ```
 
-The end-to-end tests drive the real `stratego.html` over `file://` and require
-Google Chrome to be installed (the Playwright config uses `channel: "chrome"`).
+The end-to-end tests drive the real `field-marshal.html` over `file://` and
+require Google Chrome to be installed (the Playwright config uses
+`channel: "chrome"`).
 
 ## Running
 
-Open `stratego.html` in any modern browser. No server or build step.
+Open `field-marshal.html` in any modern browser. No server or build step.

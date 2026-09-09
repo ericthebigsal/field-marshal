@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 
-const FILE = pathToFileURL(join(process.cwd(), "stratego.html")).href;
+const FILE = pathToFileURL(join(process.cwd(), "field-marshal.html")).href;
 
 test("deploy: auto-fill enables Start and reaches play phase", async ({ page }) => {
   await page.goto(FILE);

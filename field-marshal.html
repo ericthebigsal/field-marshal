@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stratego</title>
+<title>Field Marshal</title>
 <style>
 :root {
   color-scheme: dark;
@@ -19,8 +19,14 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: #2b2622; color: var(--paper);
-  display: flex; justify-content: center; padding: 12px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 12px;
 }
+.disclaimer {
+  max-width: var(--board-size); text-align: center;
+  font-size: 11px; line-height: 1.5; color: rgba(242,233,216,.45);
+}
+.disclaimer strong { color: rgba(242,233,216,.7); }
 .app {
   display: grid; gap: 14px;
   grid-template-columns: minmax(0, auto) 240px;
@@ -228,6 +234,13 @@ select {
           stroke-width="1" stroke-linejoin="round"/>
   </symbol>
 </svg>
+
+<footer class="disclaimer">
+  <strong>Field Marshal</strong> — an unofficial, non-commercial fan game.
+  Not affiliated with, sponsored by, or endorsed by the owners of the
+  Stratego<span aria-hidden="true">®</span> trademark. It plays by the
+  classical Stratego ruleset; all code and artwork here are original.
+</footer>
 
 <script id="rng">
 globalThis.Stratego = globalThis.Stratego || {};
