@@ -7,7 +7,7 @@
 <style>
 :root {
   color-scheme: dark;
-  --board-size: min(92vw, 66vh, 620px);
+  --board-size: min(92vw, 88vh, 900px);
   --cell: calc(var(--board-size) / 10);
   --wood-1: #6b4a2b; --wood-2: #8a6239; --felt: #1f5c3a;
   --red: #b32b2b; --red-dark: #7d1d1d;
@@ -57,9 +57,53 @@ body {
   content: "\2605"; color: rgba(255,255,255,.18);
   font-size: calc(var(--cell) * .5);
 }
-.token .rank { font-size: calc(var(--cell) * .42); line-height: 1; }
-.token .name { font-size: calc(var(--cell) * .13); opacity: .85; }
+/* identity still secret from the opponent vs. already revealed in combat */
+.token[data-owner].secret { color: #8fcaa0; }
+.token[data-owner].known { color: #f2cf6b; }
+.token .glyph {
+  position: absolute; left: 15%; top: 10%; width: 70%; height: 62%;
+  color: inherit; pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.35));
+}
+.token .rank {
+  position: absolute; top: 2%; left: 8%;
+  font-size: calc(var(--cell) * .22); line-height: 1;
+  opacity: .9; text-shadow: 0 1px 2px rgba(0,0,0,.5);
+}
+.token .name {
+  position: absolute; left: 3%; right: 3%; bottom: 3%;
+  font-size: calc(var(--cell) * .13); opacity: .82;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tray .token .name { display: none; }
+.tray .token .glyph { top: 14%; height: 66%; }
 .token.dragging { opacity: .4; }
+.tooltip {
+  position: fixed; z-index: 50; max-width: 240px;
+  transform: translate(-50%, -100%) translateY(-8px);
+  background: #1b1712; color: var(--paper);
+  border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.4;
+  pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+.tooltip strong { display: block; margin-bottom: 3px; }
+.banner.combat { z-index: 40; }
+.combat .card { max-width: 430px; gap: 14px; }
+.combat h3 { margin: 0; font-size: 17px; }
+.combat-pieces {
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+}
+.combat-piece { display: grid; gap: 6px; justify-items: center; }
+.combat-piece .token {
+  position: relative; inset: auto; width: 66px; height: 66px; cursor: default;
+}
+.combat-piece .token .name { display: none; }
+.combat-piece .token .glyph { width: 60%; height: 60%; }
+.combat-piece .token .rank { font-size: 15px; }
+.combat-piece-label { font-size: 12px; font-weight: 700; }
+.combat-vs { font-weight: 700; opacity: .55; }
+.combat-result { font-weight: 700; }
+.combat-reason { font-size: 13px; opacity: .82; line-height: 1.4; }
 .panel {
   background: rgba(0,0,0,.25); border-radius: 8px; padding: 12px;
   display: grid; gap: 10px;
@@ -106,6 +150,78 @@ select {
 </head>
 <body>
 <div id="app"></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- 10 Marshal: star within a ring -->
+  <symbol id="pc-10" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9.3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <path d="M12 5.4l1.9 4 4.4.5-3.2 3 .8 4.3L12 15l-3.9 2.2.8-4.3-3.2-3 4.4-.5z"
+          fill="currentColor" stroke="currentColor" stroke-width="0.8"/>
+  </symbol>
+  <!-- 9 General: single bold star -->
+  <symbol id="pc-9" viewBox="0 0 24 24">
+    <path d="M12 2.6l2.7 5.9 6.4.6-4.8 4.3 1.4 6.3L12 16.7 6.1 19.7l1.4-6.3-4.8-4.3 6.4-.6z"
+          fill="currentColor" stroke="currentColor" stroke-width="1"/>
+  </symbol>
+  <!-- 8 Colonel: three stars -->
+  <symbol id="pc-8" viewBox="0 0 24 24">
+    <g fill="currentColor" stroke="currentColor" stroke-width="0.6">
+      <path transform="translate(5.2 12)" d="M0 -3.6l1.02 2.2 2.36.28-1.72 1.62.44 2.35L0 4.02l-2.1 1.09.44-2.35-1.72-1.62 2.36-.28z"/>
+      <path transform="translate(12 12)" d="M0 -3.6l1.02 2.2 2.36.28-1.72 1.62.44 2.35L0 4.02l-2.1 1.09.44-2.35-1.72-1.62 2.36-.28z"/>
+      <path transform="translate(18.8 12)" d="M0 -3.6l1.02 2.2 2.36.28-1.72 1.62.44 2.35L0 4.02l-2.1 1.09.44-2.35-1.72-1.62 2.36-.28z"/>
+    </g>
+  </symbol>
+  <!-- 7 Major: oak leaf -->
+  <symbol id="pc-7" viewBox="0 0 24 24">
+    <path d="M12 21V9M12 3c2.6 2.4 4.5 5 4.5 8.5S14.6 18 12 21c-2.6-3-4.5-6-4.5-9.5S9.4 5.4 12 3z"
+          fill="none" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- 6 Captain: two bars -->
+  <symbol id="pc-6" viewBox="0 0 24 24">
+    <rect x="5" y="7" width="14" height="3.4" rx="1" fill="currentColor"/>
+    <rect x="5" y="13.6" width="14" height="3.4" rx="1" fill="currentColor"/>
+  </symbol>
+  <!-- 5 Lieutenant: one bar -->
+  <symbol id="pc-5" viewBox="0 0 24 24">
+    <rect x="5" y="10.3" width="14" height="3.4" rx="1" fill="currentColor"/>
+  </symbol>
+  <!-- 4 Sergeant: chevron -->
+  <symbol id="pc-4" viewBox="0 0 24 24">
+    <path d="M4 16l8-8 8 8" fill="none" stroke="currentColor" stroke-width="2.4"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- 3 Miner: pickaxe -->
+  <symbol id="pc-3" viewBox="0 0 24 24">
+    <path d="M6 19L15 10" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+    <path d="M6.5 6.5c4.5-1 9 .8 11.5 4.7-4-1.6-8-1.6-11.5 0z"
+          fill="currentColor" stroke="currentColor" stroke-width="1"/>
+  </symbol>
+  <!-- 2 Scout: boot -->
+  <symbol id="pc-2" viewBox="0 0 24 24">
+    <path d="M9 4h2.4v8.5H16a3 3 0 0 1 3 3V18H9z"
+          fill="currentColor" stroke="currentColor" stroke-width="1"
+          stroke-linejoin="round"/>
+    <path d="M8 20h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </symbol>
+  <!-- 1 Spy: magnifying glass -->
+  <symbol id="pc-1" viewBox="0 0 24 24">
+    <circle cx="10.5" cy="10.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/>
+    <path d="M14.6 14.6L20 20" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+  </symbol>
+  <!-- B Bomb -->
+  <symbol id="pc-B" viewBox="0 0 24 24">
+    <circle cx="11" cy="14" r="7" fill="currentColor"/>
+    <path d="M15.5 8.5l2.2-2.2M18.4 5.6l1 .3.3 1M18.4 5.6l-.3-1 1-.3"
+          fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  </symbol>
+  <!-- F Flag -->
+  <symbol id="pc-F" viewBox="0 0 24 24">
+    <path d="M6.5 3v18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <path d="M8 4h11l-3 4.2 3 4.2H8z" fill="currentColor" stroke="currentColor"
+          stroke-width="1" stroke-linejoin="round"/>
+  </symbol>
+</svg>
 
 <script id="rng">
 globalThis.Stratego = globalThis.Stratego || {};
@@ -920,6 +1036,109 @@ globalThis.Stratego = globalThis.Stratego || {};
   const RANK_ORDER = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, "B", "F"];
   const REQUIRED = { 10: 1, 9: 1, 8: 2, 7: 3, 6: 4, 5: 4, 4: 4, 3: 5, 2: 8, 1: 1, B: 6, F: 1 };
 
+  // Hand-authored starting formations, given for one player's zone as four
+  // 10-char rows ordered front rank (facing the enemy) to back rank.
+  // Codes: M Marshal, G General, C Colonel, J Major, A Captain, L Lieutenant,
+  // S Sergeant, N Miner, T Scout, Y Spy, B Bomb, F Flag.
+  const CODE_RANK = {
+    M: 10, G: 9, C: 8, J: 7, A: 6, L: 5, S: 4, N: 3, T: 2, Y: 1, B: "B", F: "F",
+  };
+  const SETUP_GRIDS = {
+    aggressive: [
+      "TMCTGTCTJB",
+      "AJATATAJTB",
+      "LNLSLNSLNS",
+      "BFBYSNNBBT",
+    ],
+    defensive: [
+      "TTTNTTNTTT",
+      "LAJLSNLSNS",
+      "BBCCAJALNB",
+      "FBMGYJSABB",
+    ],
+    tricky: [
+      "TNTABTTCTN",
+      "JATLJSAYLT",
+      "BMGLSFBASC",
+      "BBSNLBJNTN",
+    ],
+    conservative: [
+      "TTSNTTTTTT",
+      "JALNALSLNL",
+      "CBMGSACSNJ",
+      "BFBYABJBNB",
+    ],
+  };
+  const SETUP_NAMES = Object.keys(SETUP_GRIDS);
+
+  // Expands a formation grid into placements for `owner`. Each owner reads the
+  // grid front-rank-first, so red's front (row 6) and blue's front (row 3) get
+  // the grid's first row and the flags land on opposite back ranks.
+  function formationFor(name, owner) {
+    const grid = SETUP_GRIDS[name];
+    const rows = owner === "red" ? [6, 7, 8, 9] : [3, 2, 1, 0];
+    const out = [];
+    for (let i = 0; i < 4; i++)
+      for (let c = 0; c < 10; c++)
+        out.push({ row: rows[i], col: c, rank: CODE_RANK[grid[i][c]] });
+    return out;
+  }
+
+  // one-sentence capability text shown on hover
+  const RANK_INFO = {
+    10: "Marshal — the highest rank. Defeats every piece it fights except a Bomb, and is destroyed by the Spy if the Spy strikes first. Moves one square.",
+    9: "General — defeats any piece ranked Colonel or lower. Loses only to the Marshal. Moves one square.",
+    8: "Colonel — defeats any lower rank; loses to the General and Marshal. Moves one square.",
+    7: "Major — defeats any lower rank; loses to Colonel and above. Moves one square.",
+    6: "Captain — defeats any lower rank; loses to Major and above. Moves one square.",
+    5: "Lieutenant — defeats any lower rank; loses to Captain and above. Moves one square.",
+    4: "Sergeant — defeats Miner, Scout and Spy; loses to Lieutenant and above. Moves one square.",
+    3: "Miner — the only piece that can defuse a Bomb. Also defeats the Scout and Spy. Moves one square.",
+    2: "Scout — moves any number of empty squares in a straight line and may attack on the same turn. Beats only the Spy by rank.",
+    1: "Spy — the lowest rank, but destroys the Marshal if the Spy attacks first. Loses to every other piece.",
+    B: "Bomb — does not move. Destroys any attacker except a Miner, who defuses it.",
+    F: "Flag — does not move. Capture the enemy Flag to win the game; lose yours and you lose.",
+  };
+  function pieceRule(rank) { return RANK_INFO[rank] || ""; }
+
+  function sideName(owner) { return owner === "red" ? "Red" : "Blue"; }
+
+  // Turns a resolved combat ({attacker,defender,outcome}) into plain-language
+  // text for the encounter modal: a headline, what happened, and why.
+  function explainCombat(combat) {
+    const { attacker, defender, outcome } = combat;
+    const aName = RANK_NAME[attacker.rank], dName = RANK_NAME[defender.rank];
+    const aSide = sideName(attacker.owner), dSide = sideName(defender.owner);
+    const headline = `${aSide} ${aName} attacks ${dSide} ${dName}`;
+    let result, reason;
+
+    if (defender.rank === "F") {
+      result = `${aSide} ${aName} captures the ${dSide} Flag!`;
+      reason = "Capturing the enemy flag wins the game.";
+    } else if (defender.rank === "B") {
+      if (outcome === "attacker") {
+        result = `The ${dSide} Bomb is defused. ${aSide} ${aName} survives and is revealed.`;
+        reason = "Only a Miner can defuse a Bomb — any other attacker is destroyed.";
+      } else {
+        result = `${aSide} ${aName} is destroyed. The ${dSide} Bomb is revealed and stays in place.`;
+        reason = "A Bomb destroys any attacker except a Miner.";
+      }
+    } else if (attacker.rank === 1 && defender.rank === 10 && outcome === "attacker") {
+      result = `The ${dSide} Marshal is captured. ${aSide} Spy survives and is revealed.`;
+      reason = "The Spy assassinates the Marshal — but only when the Spy attacks first.";
+    } else if (outcome === "both") {
+      result = `Both ${aName}s are removed.`;
+      reason = "Equal ranks — both pieces are lost.";
+    } else if (outcome === "attacker") {
+      result = `${dSide} ${dName} is captured. ${aSide} ${aName} survives and is revealed.`;
+      reason = "The attacker holds the higher rank.";
+    } else {
+      result = `${aSide} ${aName} is captured. ${dSide} ${dName} survives and is revealed.`;
+      reason = "The defender holds the higher rank.";
+    }
+    return { headline, result, reason };
+  }
+
   const Game = {
     state: null,
     newMatch(difficulty = "medium", seed) {
@@ -934,44 +1153,15 @@ globalThis.Stratego = globalThis.Stratego || {};
       if (globalThis.Stratego.UI && globalThis.Stratego.UI.clearSave)
         globalThis.Stratego.UI.clearSave();
     },
-    _weightedArmy(owner, rng) {
-      // returns {row,col,rank}[] covering all 40 squares of owner's deploy rows
-      const rows = E().deployRows(owner);
-      const back = owner === "red" ? rows[rows.length - 1] : rows[0];
-      const squares = [];
-      for (const row of rows) for (let col = 0; col < 10; col++) squares.push({ row, col });
-      const flagScore = (sq) =>
-        (sq.row === back ? 3 : 0) + (sq.col <= 1 || sq.col >= 8 ? 1 : 0);
-      const bag = [];
-      for (const r of RANK_ORDER) for (let i = 0; i < REQUIRED[r]; i++) bag.push(r);
-      const ranked = squares.slice().sort((a, b) => flagScore(b) - flagScore(a));
-      const flagSq = ranked[rng.int(Math.min(4, ranked.length))];
-      const used = new Set([flagSq.row + "," + flagSq.col]);
-      const out = [{ row: flagSq.row, col: flagSq.col, rank: "F" }];
-      bag.splice(bag.indexOf("F"), 1);
-      const bombPref = (sq) =>
-        (Math.abs(sq.row - flagSq.row) + Math.abs(sq.col - flagSq.col) === 1 ? 3 : 0) +
-        (sq.row === back ? 1 : 0);
-      const rest = squares.filter((s) => !used.has(s.row + "," + s.col));
-      const bombRanked = rest.slice().sort((a, b) => bombPref(b) - bombPref(a));
-      for (let i = 0; i < REQUIRED.B; i++) {
-        const sq = bombRanked[i];
-        used.add(sq.row + "," + sq.col);
-        out.push({ row: sq.row, col: sq.col, rank: "B" });
-        bag.splice(bag.indexOf("B"), 1);
-      }
-      const remainingSquares = rng.shuffle(
-        squares.filter((s) => !used.has(s.row + "," + s.col)));
-      const remainingBag = rng.shuffle(bag);
-      for (let i = 0; i < remainingSquares.length; i++) {
-        out.push({
-          row: remainingSquares[i].row, col: remainingSquares[i].col,
-          rank: remainingBag[i],
-        });
-      }
-      return out;
+    // the computer deploys with a randomly chosen named formation
+    autoSetupFor(owner) {
+      const name = Game.state.rng.pick(SETUP_NAMES);
+      return formationFor(name, owner);
     },
-    autoSetupFor(owner) { return Game._weightedArmy(owner, Game.state.rng); },
+    applySetup(name) {
+      if (!SETUP_GRIDS[name]) return;
+      Game.state.deployPlacements = formationFor(name, Game.state.humanOwner);
+    },
     autoFillDeployment() {
       const placed = new Set(Game.state.deployPlacements.map((p) => p.row + "," + p.col));
       const haveByRank = {};
@@ -1047,23 +1237,71 @@ globalThis.Stratego = globalThis.Stratego || {};
     return n;
   }
 
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  function glyphEl(rank) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", "glyph");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS(SVG_NS, "use");
+    use.setAttribute("href", "#pc-" + rank);
+    svg.append(use);
+    return svg;
+  }
+
+  // shared hover/focus tooltip
+  let TIP = null;
+  function tipNode() {
+    if (!TIP) {
+      TIP = el("div", { class: "tooltip", "data-testid": "piece-tooltip" });
+      TIP.hidden = true;
+      document.body.append(TIP);
+    }
+    return TIP;
+  }
+  function showTip(anchor, title, body) {
+    const t = tipNode();
+    t.replaceChildren(el("strong", { text: title }), el("span", { text: body }));
+    t.hidden = false;
+    const r = anchor.getBoundingClientRect();
+    t.style.left = Math.round(r.left + r.width / 2) + "px";
+    t.style.top = Math.round(r.top) + "px";
+  }
+  function hideTip() { if (TIP) TIP.hidden = true; }
+
   function tokenEl(rank, owner, opts = {}) {
     const shown = opts.hidden ? "hidden" : owner;
     const attrs = {
-      class: "token" + (opts.dragging ? " dragging" : ""),
+      class: "token" + (opts.dragging ? " dragging" : "") +
+             (opts.state ? " " + opts.state : ""),
       "data-owner": shown,
       draggable: opts.draggable ? "true" : null,
+      tabindex: "0",
     };
     if (opts.testid !== false) attrs["data-testid"] = "token";
     const t = el("div", attrs);
     if (!opts.hidden) {
-      t.append(el("span", { class: "rank", text: String(rank) }));
+      t.append(glyphEl(rank));
+      if (rank !== "B" && rank !== "F")
+        t.append(el("span", { class: "rank", text: String(rank) }));
       t.append(el("span", { class: "name", text: RANK_NAME[rank] }));
     }
+    const tipTitle = opts.hidden
+      ? "Unknown enemy piece"
+      : RANK_NAME[rank] + " (" + rank + ")";
+    const tipBody = opts.hidden
+      ? "Its rank stays hidden until it moves or fights."
+      : pieceRule(rank);
+    const enter = () => showTip(t, tipTitle, tipBody);
+    t.addEventListener("mouseenter", enter);
+    t.addEventListener("mouseleave", hideTip);
+    t.addEventListener("focus", enter);
+    t.addEventListener("blur", hideTip);
     return t;
   }
 
   function renderDeploy() {
+    hideTip();
     const g = Game.state;
     const board = el("div", { class: "board", "data-testid": "board" });
     const deployRows = new Set(E().deployRows(g.humanOwner));
@@ -1131,13 +1369,25 @@ globalThis.Stratego = globalThis.Stratego || {};
       diff.append(o);
     }
 
+    const formation = el("select", {
+      "data-testid": "formation-select",
+      onchange: (e) => {
+        if (!e.target.value) return;
+        Game.applySetup(e.target.value);
+        UI.render();
+      },
+    }, el("option", { value: "", text: "Formation…" }));
+    for (const n of SETUP_NAMES)
+      formation.append(el("option", { value: n, text: n[0].toUpperCase() + n.slice(1) }));
+
     const panel = el("div", { class: "panel" },
       el("strong", { text: "Deploy your army" }),
       diff,
+      formation,
       tray,
       el("button", {
         "data-testid": "btn-autofill",
-        onclick: () => { Game.autoFillDeployment(); UI.render(); }, text: "Auto-fill",
+        onclick: () => { Game.autoFillDeployment(); UI.render(); }, text: "Auto-fill (random)",
       }),
       el("button", {
         "data-testid": "btn-clear",
@@ -1204,6 +1454,7 @@ globalThis.Stratego = globalThis.Stratego || {};
   Game.selected = null;
   Game.legalTargets = [];
   Game._lastCombat = null;
+  Game._pendingCombat = null;
   Game._aiTimer = null;
 
   Game.selectPiece = function (r, c) {
@@ -1246,15 +1497,26 @@ globalThis.Stratego = globalThis.Stratego || {};
     g.beliefs = A().applyMoveTells(g.beliefs, g.engineState, prev, result, g.difficulty);
     Game.selected = null; Game.legalTargets = [];
     Game._lastCombat = result.combat ? result.combat.square : null;
-    if (g.engineState.winner) {
-      g.phase = "over";
-      UI.persist && UI.persist();
-      UI.render();
-      return;
+    if (g.engineState.winner) g.phase = "over";
+    if (result.combat) {
+      Game._pendingCombat = {
+        combat: result.combat,
+        resumeWith: g.engineState.winner ? null : "ai",
+      };
     }
     UI.persist && UI.persist();
     UI.render();
-    Game._aiTimer = setTimeout(Game.aiTurn, AI_THINK_MS);
+    if (!result.combat && !g.engineState.winner)
+      Game._aiTimer = setTimeout(Game.aiTurn, AI_THINK_MS);
+  };
+
+  // Called when the player dismisses the encounter modal.
+  Game.dismissCombat = function () {
+    const pc = Game._pendingCombat;
+    Game._pendingCombat = null;
+    UI.render();
+    if (pc && pc.resumeWith === "ai" && !Game.state.engineState.winner)
+      Game._aiTimer = setTimeout(Game.aiTurn, AI_THINK_MS);
   };
 
   Game.aiTurn = function () {
@@ -1279,6 +1541,7 @@ globalThis.Stratego = globalThis.Stratego || {};
     g.beliefs = A().applyMoveTells(g.beliefs, g.engineState, prev, result, g.difficulty);
     Game._lastCombat = result.combat ? result.combat.square : null;
     if (g.engineState.winner) g.phase = "over";
+    if (result.combat) Game._pendingCombat = { combat: result.combat, resumeWith: null };
     UI.persist && UI.persist();
     UI.render();
   };
@@ -1294,6 +1557,7 @@ globalThis.Stratego = globalThis.Stratego || {};
     g.history = snap.history;
     Game.selected = null; Game.legalTargets = [];
     Game._lastCombat = null;
+    Game._pendingCombat = null;
     g.phase = "play";
     UI.persist && UI.persist();
     UI.render();
@@ -1306,6 +1570,7 @@ globalThis.Stratego = globalThis.Stratego || {};
     g.engineState.winner = g.aiOwner;
     g.engineState.winReason = "resign";
     g.phase = "over";
+    Game._pendingCombat = null;
     UI.persist && UI.persist();
     UI.render();
   };
@@ -1325,7 +1590,37 @@ globalThis.Stratego = globalThis.Stratego || {};
     return lost;
   }
 
+  function combatPieceEl(side) {
+    return el("div", { class: "combat-piece" },
+      tokenEl(side.rank, side.owner, { testid: false }),
+      el("div", {
+        class: "combat-piece-label",
+        text: sideName(side.owner) + " " + RANK_NAME[side.rank],
+      }));
+  }
+
+  function renderCombatModal(combat) {
+    const info = explainCombat(combat);
+    return el("div", {
+      class: "banner combat", "data-testid": "combat-modal",
+      onclick: (e) => { if (e.target === e.currentTarget) Game.dismissCombat(); },
+    },
+      el("div", { class: "card" },
+        el("h3", { text: info.headline }),
+        el("div", { class: "combat-pieces" },
+          combatPieceEl(combat.attacker),
+          el("div", { class: "combat-vs", text: "vs" }),
+          combatPieceEl(combat.defender)),
+        el("div", { class: "combat-result", text: info.result }),
+        el("div", { class: "combat-reason", text: info.reason }),
+        el("button", {
+          "data-testid": "btn-combat-continue",
+          onclick: Game.dismissCombat, text: "Continue",
+        })));
+  }
+
   UI._renderPlay = function () {
+    hideTip();
     const g = Game.state;
     const es = g.engineState;
     const board = el("div", { class: "board", "data-testid": "board" });
@@ -1349,7 +1644,8 @@ globalThis.Stratego = globalThis.Stratego || {};
       const p = E().pieceAt(es, r, c);
       if (p) {
         const hidden = p.owner === g.aiOwner && !p.revealed && g.phase === "play";
-        cell.append(tokenEl(p.rank, p.owner, { hidden }));
+        const state = hidden ? null : (p.revealed ? "known" : "secret");
+        cell.append(tokenEl(p.rank, p.owner, { hidden, state }));
       }
       board.append(cell);
     }
@@ -1397,6 +1693,9 @@ globalThis.Stratego = globalThis.Stratego || {};
             text: "Play again",
           }))));
     }
+    if (Game._pendingCombat)
+      wrap.append(renderCombatModal(Game._pendingCombat.combat));
+
     ROOT.replaceChildren(wrap);
 
     // clear the combat highlight after a beat
@@ -1458,6 +1757,7 @@ globalThis.Stratego = globalThis.Stratego || {};
       };
       Game.selected = null; Game.legalTargets = [];
       Game._lastCombat = null;
+      Game._pendingCombat = null;
       return true;
     } catch (e) {
       UI.clearSave();
@@ -1506,6 +1806,11 @@ globalThis.Stratego = globalThis.Stratego || {};
         })));
     ROOT.replaceChildren(wrap);
   };
+
+  UI.explainCombat = explainCombat;
+  UI.pieceRule = pieceRule;
+  UI.formationFor = formationFor;
+  UI.SETUP_NAMES = SETUP_NAMES;
 
   globalThis.Stratego.UI = UI;
   globalThis.Stratego.Game = Game;

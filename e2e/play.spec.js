@@ -12,6 +12,12 @@ async function startGame(page, difficulty = "easy") {
   await expect(page.getByTestId("turn-indicator")).toContainText(/your turn/i);
 }
 
+// The computer's move may end in an encounter, which raises a blocking modal.
+async function clearCombatModal(page) {
+  const cont = page.getByTestId("btn-combat-continue");
+  if (await cont.isVisible().catch(() => false)) await cont.click();
+}
+
 test("human can select a front-row piece and see legal targets", async ({ page }) => {
   await startGame(page);
   // red front row is row index 6 -> cell-6-c. Find one with a token.
@@ -38,6 +44,7 @@ test("Undo restores the previous position", async ({ page }) => {
   await page.locator('[data-testid="cell-6-0"]').click();
   await page.locator('[data-testid="cell-5-0"]').click();
   await expect(page.getByTestId("turn-indicator")).toContainText(/your turn/i, { timeout: 5000 });
+  await clearCombatModal(page);
   const logBefore = await page.getByTestId("move-log").innerText();
   await page.getByTestId("btn-undo").click();
   const logAfter = await page.getByTestId("move-log").innerText();
