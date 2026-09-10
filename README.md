@@ -17,7 +17,7 @@ self-contained `field-marshal.html` file that runs offline.
 Playable. Four difficulty tiers (Easy, Medium, Hard, Expert), full deploy and
 play phases, and save/resume of an in-progress game via `localStorage` (with a
 resume-or-new-game prompt on reload). Test suites: 87 `node:test` unit tests for
-the pure modules and 16 Playwright end-to-end tests for the UI.
+the pure modules and 19 Playwright end-to-end tests for the UI.
 
 - Design spec: [`docs/superpowers/specs/2026-09-07-stratego-single-player-design.md`](docs/superpowers/specs/2026-09-07-stratego-single-player-design.md)
 
@@ -31,6 +31,9 @@ the pure modules and 16 Playwright end-to-end tests for the UI.
 - Classic tabletop visual style (wood board, felt lakes, pictographic rank
   tokens — a drawn insignia per rank, bomb and flag included).
 - Hover any piece for a tooltip describing that rank's capabilities.
+- A **?** button (deploy and play) opens a "How to play" panel: the objective,
+  movement, combat, special ranks, and a full table of every rank with its
+  icon, count, and role.
 - Two live rosters in the play panel — one per side — showing every rank's
   icon and how many are still in play (a rank drops only when a piece of it
   dies in combat, which always reveals the rank). Hover a tile for its rules.
@@ -45,8 +48,7 @@ the pure modules and 16 Playwright end-to-end tests for the UI.
   - Shallow expectimax search over that belief model.
   - Four difficulty tiers (Easy 1-ply through Expert 4-ply) that differ only in
     search depth, belief fidelity, and decision noise — all fair.
-- Captured-pieces trays, encounter modal, combat reveal animation,
-  move-history log, undo.
+- Encounter modal, combat reveal animation, move-history log, undo.
 - Save / resume via `localStorage`.
 
 ## Architecture
@@ -71,7 +73,7 @@ stays a single file while development uses real TDD.
 
 ```
 npm test              # 87 node:test unit tests (Engine, RNG, AI, UI helpers)
-npx playwright test   # 16 end-to-end UI tests (deploy, play, save/resume, encounters)
+npx playwright test   # 19 end-to-end UI tests (deploy, play, save/resume, encounters, rules)
 ```
 
 The end-to-end tests drive the real `field-marshal.html` over `file://` and
