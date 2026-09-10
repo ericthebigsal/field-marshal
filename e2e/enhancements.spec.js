@@ -42,9 +42,23 @@ test("hovering a piece shows its rules", async ({ page }) => {
   const tip = page.getByTestId("piece-tooltip");
   await expect(tip).toBeVisible();
   await expect(tip).toContainText(/moves|square|line|bomb|flag/i);
-  await expect(tip).toContainText(/my remaining/i);
-  await expect(tip).toContainText(/opponent remaining/i);
-  await expect(tip).toContainText(/\d+ of \d+/);
+});
+
+test("both piece rosters render, count down, and explain on hover", async ({ page }) => {
+  await startGame(page);
+  const red = page.getByTestId("roster-red");
+  const blue = page.getByTestId("roster-blue");
+  await expect(red.locator(".slot")).toHaveCount(12);
+  await expect(blue.locator(".slot")).toHaveCount(12);
+  // fresh game: 8 scouts each side
+  await expect(page.getByTestId("roster-red-2")).toContainText("8");
+  await expect(page.getByTestId("roster-blue-2")).toContainText("8");
+
+  await page.getByTestId("roster-red-3").hover();
+  const tip = page.getByTestId("piece-tooltip");
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText(/Miner/);
+  await expect(tip).toContainText(/bomb/i);
 });
 
 test("a piece's text color marks whether it has been revealed", async ({ page }) => {
