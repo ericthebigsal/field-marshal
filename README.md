@@ -30,8 +30,10 @@ the pure modules and 16 Playwright end-to-end tests for the UI.
   Conservative). The computer deploys with a randomly chosen formation too.
 - Classic tabletop visual style (wood board, felt lakes, pictographic rank
   tokens — a drawn insignia per rank, bomb and flag included).
-- Hover any piece for a tooltip describing that rank's capabilities and how
-  many of that rank you and the opponent each still have in play.
+- Hover any piece for a tooltip describing that rank's capabilities.
+- Two live rosters in the play panel — one per side — showing every rank's
+  icon and how many are still in play (a rank drops only when a piece of it
+  dies in combat, which always reveals the rank). Hover a tile for its rules.
 - Piece text is tinted by whether its identity is still secret from the
   opponent (green) or has been revealed in combat (amber).
 - Every encounter opens a modal showing both pieces, the outcome, and a
