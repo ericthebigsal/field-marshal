@@ -112,8 +112,35 @@ body {
 .combat-reason { font-size: 13px; opacity: .82; line-height: 1.4; }
 .panel {
   background: rgba(0,0,0,.25); border-radius: 8px; padding: 12px;
-  display: grid; gap: 10px;
+  display: grid; gap: 10px; position: relative;
 }
+.btn-help {
+  position: absolute; top: 8px; right: 8px;
+  width: 26px; height: 26px; padding: 0; border-radius: 50%;
+  font-weight: 700; line-height: 1; background: #d8c9a8; color: #201a12;
+}
+.banner.rules { z-index: 45; }
+.banner.rules .card {
+  display: block; max-width: 620px; max-height: 82vh; overflow-y: auto;
+  text-align: left;
+}
+.rules h2 { margin: 0 0 4px; }
+.rules h4 { margin: 10px 0 0; }
+.rules p { margin: 2px 0; font-size: 14px; line-height: 1.5; }
+.rules-fine { font-size: 12px; opacity: .6; margin-top: 10px; }
+.rules-table-wrap { overflow-x: auto; }
+.rules-ranks { border-collapse: collapse; width: 100%; font-size: 13px; }
+.rules-ranks th, .rules-ranks td {
+  text-align: left; padding: 4px 8px; vertical-align: top;
+  border-top: 1px solid rgba(0,0,0,.12);
+}
+.rules-ranks th { border-top: 0; font-size: 12px; opacity: .7; }
+.rules-ranks td:nth-child(2), .rules-ranks td:nth-child(3) {
+  text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.rules-piece { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.rules-piece svg { width: 20px; height: 20px; color: var(--ink); flex: none; }
+.banner.rules .card > button { margin-top: 12px; justify-self: start; }
 .tray { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .tray .slot {
   aspect-ratio: 1; position: relative; background: rgba(255,255,255,.06);
@@ -1126,6 +1153,27 @@ globalThis.Stratego = globalThis.Stratego || {};
   };
   function pieceRule(rank) { return RANK_INFO[rank] || ""; }
 
+  // rank's role text with the leading "Name — " stripped, for the rules table
+  function pieceRole(rank) {
+    const s = (RANK_INFO[rank] || "").replace(/^[^—]+—\s*/, "");
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  const RULES_SECTIONS = [
+    { h: "Goal", body:
+      "Capture your opponent's Flag, or leave them with no legal move. Lose your own Flag and you lose." },
+    { h: "The board", body:
+      "A 10×10 grid with two lakes in the middle that no piece may enter or cross. Each army secretly arranges its 40 pieces across its four back rows before play begins; you never see the ranks of the enemy's unrevealed pieces." },
+    { h: "Moving", body:
+      "On your turn, move one piece one square up, down, left or right — never diagonally, never onto a friendly piece or a lake. The Scout is the exception: it moves any number of empty squares in a straight line and may attack at the end of that move. Bombs and the Flag never move." },
+    { h: "Attacking", body:
+      "Move onto a square held by an enemy piece to attack it. Both ranks are revealed. The lower rank is removed; if the ranks are equal, both are removed. The winner stays put, and its rank is now known to both players." },
+    { h: "Special ranks", body:
+      "The Spy destroys the Marshal — but only when the Spy is the attacker. Only a Miner can defuse a Bomb; any other piece that attacks a Bomb is destroyed." },
+    { h: "Repetition", body:
+      "You may not shuttle a single piece back and forth between the same two squares more than twice in a row." },
+  ];
+
   // How many pieces of each rank `owner` still has on the board. A piece only
   // ever leaves the board by losing (or trading in) combat, which reveals its
   // rank, so even the opponent's figures are derivable from what the player
@@ -1421,6 +1469,7 @@ globalThis.Stratego = globalThis.Stratego || {};
       formation.append(el("option", { value: n, text: n[0].toUpperCase() + n.slice(1) }));
 
     const panel = el("div", { class: "panel" },
+      helpButton(),
       el("strong", { text: "Deploy your army" }),
       diff,
       formation,
@@ -1440,7 +1489,9 @@ globalThis.Stratego = globalThis.Stratego || {};
       }),
     );
 
-    ROOT.replaceChildren(el("div", { class: "app" }, board, panel));
+    const wrap = el("div", { class: "app" }, board, panel);
+    if (Game._rulesOpen) wrap.append(renderRulesModal());
+    ROOT.replaceChildren(wrap);
   }
 
   const UI = {
@@ -1495,7 +1546,13 @@ globalThis.Stratego = globalThis.Stratego || {};
   Game.legalTargets = [];
   Game._lastCombat = null;
   Game._pendingCombat = null;
+  Game._rulesOpen = false;
   Game._aiTimer = null;
+
+  Game.toggleRules = function () {
+    Game._rulesOpen = !Game._rulesOpen;
+    UI.render();
+  };
 
   Game.selectPiece = function (r, c) {
     const g = Game.state;
@@ -1664,6 +1721,50 @@ globalThis.Stratego = globalThis.Stratego || {};
         })));
   }
 
+  function helpButton() {
+    return el("button", {
+      class: "btn-help", "data-testid": "btn-rules",
+      "aria-label": "How to play", title: "How to play",
+      onclick: Game.toggleRules, text: "?",
+    });
+  }
+
+  function renderRulesModal() {
+    const table = el("table", { class: "rules-ranks" },
+      el("thead", {}, el("tr", {},
+        el("th", { text: "Piece" }), el("th", { text: "Rank" }),
+        el("th", { text: "In army" }), el("th", { text: "Role" }))),
+      el("tbody", {},
+        ...RANK_ORDER.map((rank) => el("tr", { "data-testid": "rules-rank-row" },
+          el("td", {},
+            el("span", { class: "rules-piece" },
+              glyphEl(rank),
+              el("span", { text: RANK_NAME[rank] }))),
+          el("td", { text: typeof rank === "number" ? String(rank) : "—" }),
+          el("td", { text: String(REQUIRED[rank]) }),
+          el("td", { text: pieceRole(rank) })))));
+
+    return el("div", {
+      class: "banner rules", "data-testid": "rules-modal",
+      onclick: (e) => { if (e.target === e.currentTarget) Game.toggleRules(); },
+    },
+      el("div", { class: "card" },
+        el("h2", { text: "How to play" }),
+        ...RULES_SECTIONS.flatMap((s) => [
+          el("h4", { text: s.h }),
+          el("p", { text: s.body }),
+        ]),
+        el("h4", { text: "The ranks" }),
+        el("div", { class: "rules-table-wrap" }, table),
+        el("p", { class: "rules-fine", text:
+          "Field Marshal is an unofficial fan game played by the classical " +
+          "Stratego ruleset. Not affiliated with the trademark owners." }),
+        el("button", {
+          "data-testid": "btn-rules-close",
+          onclick: Game.toggleRules, text: "Close",
+        })));
+  }
+
   UI._renderPlay = function () {
     hideTip();
     const g = Game.state;
@@ -1699,6 +1800,7 @@ globalThis.Stratego = globalThis.Stratego || {};
       ? "Game over"
       : es.turn === g.humanOwner ? "Your turn" : "Computer thinking…";
     const panel = el("div", { class: "panel" },
+      helpButton(),
       el("div", { class: "turn", "data-testid": "turn-indicator", text: turnText }),
       el("button", {
         "data-testid": "btn-undo",
@@ -1734,6 +1836,7 @@ globalThis.Stratego = globalThis.Stratego || {};
     }
     if (Game._pendingCombat)
       wrap.append(renderCombatModal(Game._pendingCombat.combat));
+    if (Game._rulesOpen) wrap.append(renderRulesModal());
 
     ROOT.replaceChildren(wrap);
 
